@@ -1,0 +1,35 @@
+# UVG MAX Engine - Requirements
+# Core
+python-dotenv>=1.0.0
+requests>=2.31.0
+tqdm>=4.66.0
+
+# AI/ML
+torch>=2.0.0
+open-clip-torch>=2.20.0
+google-generativeai>=0.3.0
+transformers>=4.35.0
+
+# Azure TTS
+azure-cognitiveservices-speech>=1.32.0
+
+# Computer Vision
+opencv-python>=4.8.0
+Pillow>=10.0.0
+numpy>=1.24.0
+
+# Audio
+librosa>=0.10.0
+pyloudnorm>=0.1.1
+pyttsx3>=2.90  # Fallback TTS
+
+# Video/FFmpeg (system dependency)
+# ffmpeg-python>=0.2.0  # Optional wrapper
+
+# Testing
+pytest>=7.4.0
+pytest-cov>=4.1.0
+
+# Optional: Colab UI
+# ipywidgets>=8.0.0
+# gradio>=4.0.0
