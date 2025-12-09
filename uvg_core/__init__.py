@@ -164,6 +164,15 @@ from .orchestrator import (
     SceneStatus,
 )
 
+# Main Pipeline
+from .uvg_pipeline import (
+    UVGPipeline,
+    PipelineConfig,
+    PipelineResult,
+    run_pipeline,
+    generate_video,
+)
+
 
 __all__ = [
     # Version
@@ -230,4 +239,11 @@ __all__ = [
     # Orchestration
     "Orchestrator",
     "ProjectState",
+    
+    # Main Pipeline
+    "UVGPipeline",
+    "PipelineConfig",
+    "PipelineResult",
+    "run_pipeline",
+    "generate_video",
 ]

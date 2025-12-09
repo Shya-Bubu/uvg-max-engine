@@ -1,6 +1,6 @@
 # UVG MAX – Premium AI Video Generator
 
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/ShyaBubu/uvg-max-engine/blob/main/uvg_colab.ipynb)
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/shya-bubu/uvg-max-engine/blob/main/uvg_colab.ipynb)
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
@@ -67,7 +67,7 @@ uvg-max-engine/
 
 ```bash
 # Clone the repository
-git clone https://github.com/ShyaBubu/uvg-max-engine.git
+git clone https://github.com/shya-bubu/uvg-max-engine.git
 cd uvg-max-engine
 
 # Install dependencies
