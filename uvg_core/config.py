@@ -211,8 +211,8 @@ class UVGConfig:
     # AI MODEL SELECTION
     # =========================================================================
     GEMINI_SCRIPT_MODEL: str = field(default_factory=lambda: os.getenv("UVG_GEMINI_SCRIPT_MODEL", "gemini-2.5-flash"))
-    GEMINI_CREATIVE_MODEL: str = field(default_factory=lambda: os.getenv("UVG_GEMINI_CREATIVE_MODEL", "gemini-2.5-flash-live"))
-    GEMINI_TTS_MODEL: str = field(default_factory=lambda: os.getenv("UVG_GEMINI_TTS_MODEL", "gemini-2.5-flash-tts"))
+    GEMINI_CREATIVE_MODEL: str = field(default_factory=lambda: os.getenv("UVG_GEMINI_CREATIVE_MODEL", "gemini-2.5-flash"))
+    GEMINI_TTS_MODEL: str = field(default_factory=lambda: os.getenv("UVG_GEMINI_TTS_MODEL", "gemini-2.5-flash"))
     TTS_PROVIDER: str = field(default_factory=lambda: os.getenv("UVG_TTS_PROVIDER", "mock"))  # mock, gemini, azure
     
     # =========================================================================
