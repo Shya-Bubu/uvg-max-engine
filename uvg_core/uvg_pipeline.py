@@ -325,7 +325,7 @@ class UVGPipeline:
                 loaded_script = script_loader.load_from_json(script_path)
             elif topic:
                 script_gen = self._get_module("script_generator")
-                loaded_script = script_gen.generate_script(topic=topic)
+                loaded_script = script_gen.generate_script(prompt=topic)
             else:
                 raise ValueError("Must provide topic, script, or script_path")
             
