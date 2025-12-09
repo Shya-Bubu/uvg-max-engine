@@ -197,8 +197,8 @@ class UVGPipeline:
         return WhisperTimingExtractor()
     
     def _load_media_search(self):
-        from .media_search import MediaSearch
-        return MediaSearch(download_dir=self.config.cache_dir / "media")
+        from .media_search import MediaSearchEngine
+        return MediaSearchEngine(clips_dir=self.config.cache_dir / "media")
     
     def _load_creative_director(self):
         from .creative_director import CreativeDirector
