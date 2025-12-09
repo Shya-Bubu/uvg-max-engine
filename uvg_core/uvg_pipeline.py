@@ -370,7 +370,7 @@ class UVGPipeline:
             
             for i, scene in enumerate(loaded_script.scenes):
                 audio_path = str(self.config.output_dir / "audio" / f"scene_{i}.wav")
-                emotion = scene_directions[i].emotion if scene_directions else "neutral"
+                emotion = scene_directions[i].emotion_tag if scene_directions else "neutral"
                 result = tts.synthesize(scene.text, emotion, audio_path)
                 tts_results.append(result)
             
