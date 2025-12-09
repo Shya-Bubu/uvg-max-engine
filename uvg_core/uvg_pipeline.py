@@ -349,8 +349,12 @@ class UVGPipeline:
             director = self._get_module("creative_director")
             scene_directions = []
             
-            for scene in loaded_script.scenes:
-                direction = director.direct_scene(scene.text, scene.emotion)
+            for i, scene in enumerate(loaded_script.scenes):
+                direction = director.get_scene_direction(
+                    scene_idx=i,
+                    scene_text=scene.text,
+                    emotion=scene.emotion
+                )
                 scene_directions.append(direction)
             
             timing["direction"] = time.time() - step_start
