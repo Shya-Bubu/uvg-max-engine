@@ -1,0 +1,34 @@
+name: motivational
+display_name: Motivational
+
+# Color grading
+color_palette: warm
+
+# Transitions
+transitions:
+  - zoom_through
+  - whip_pan
+  - fade
+transition_duration: 0.5
+
+# Captions
+caption_style: bold
+caption_animation: pop
+font_family: Impact
+font_size: 54
+
+# Pacing
+pacing_factor: 0.9
+motion_curve: dynamic
+
+# Camera
+camera_motions:
+  - zoom-in
+  - tilt-up
+  - pan-right
+
+# Thumbnail
+thumbnail_style: motivational
+
+# Audio
+music_volume: 0.18

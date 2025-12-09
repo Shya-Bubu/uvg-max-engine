@@ -80,15 +80,457 @@ VOICE_STYLES = {
 }
 
 
-class TTSEngine:
+# =============================================================================
+# TTS ADAPTER SYSTEM (Pluggable)
+# =============================================================================
+
+from abc import ABC, abstractmethod
+
+
+class TTSAdapter(ABC):
+    """Abstract base class for TTS providers."""
+    
+    @abstractmethod
+    def synthesize(self, text: str, voice_style: str, output_path: str) -> TTSResult:
+        """Synthesize speech from text.
+        
+        Args:
+            text: Text to synthesize
+            voice_style: Voice style preset
+            output_path: Path to save audio file
+            
+        Returns:
+            TTSResult with audio path and word timings
+        """
+        pass
+    
+    @abstractmethod
+    def is_available(self) -> bool:
+        """Check if this adapter is available for use."""
+        pass
+
+
+class MockTTSAdapter(TTSAdapter):
     """
-    Azure TTS engine with word-level timing.
+    # MOCK — Generates silence WAV with estimated word timings.
+    Used for testing without external API calls.
+    """
+    
+    def __init__(self, output_dir: Path):
+        self.output_dir = output_dir
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+    
+    def is_available(self) -> bool:
+        return True  # Always available
+    
+    def synthesize(self, text: str, voice_style: str, output_path: str) -> TTSResult:
+        """Generate mock audio with estimated word timings."""
+        import struct
+        import wave
+        
+        words = text.split()
+        # Estimate 200ms per word
+        total_duration_ms = len(words) * 200 + 500  # +500ms padding
+        
+        # Generate word timings
+        word_timings = []
+        current_ms = 100
+        for word in words:
+            duration = 150 + len(word) * 10  # Longer words take more time
+            word_timings.append(WordTiming(
+                word=word,
+                start_ms=current_ms,
+                end_ms=current_ms + duration
+            ))
+            current_ms += duration + 50  # 50ms gap between words
+        
+        total_duration_ms = current_ms + 100
+        
+        # Generate silence WAV
+        try:
+            sample_rate = 44100
+            num_samples = int(sample_rate * total_duration_ms / 1000)
+            
+            with wave.open(output_path, 'w') as wav_file:
+                wav_file.setnchannels(1)
+                wav_file.setsampwidth(2)
+                wav_file.setframerate(sample_rate)
+                # Write silence
+                silence = struct.pack('<' + 'h' * num_samples, *([0] * num_samples))
+                wav_file.writeframes(silence)
+            
+            logger.info(f"[MOCK] Generated mock audio: {output_path} ({total_duration_ms}ms)")
+            
+            return TTSResult(
+                success=True,
+                text=text,
+                audio_path=output_path,
+                duration_ms=total_duration_ms,
+                word_timings=word_timings,
+                voice_style=voice_style,
+            )
+        except Exception as e:
+            return TTSResult(
+                success=False,
+                text=text,
+                audio_path="",
+                duration_ms=0,
+                error=f"Mock TTS failed: {e}"
+            )
+
+
+class GeminiTTSAdapter(TTSAdapter):
+    """
+    # MOCK — Implement real call here when gemini-2.5-flash-tts available.
+    
+    Placeholder for Gemini TTS API integration.
+    When the API becomes available, replace the mock implementation with real calls.
+    """
+    
+    def __init__(self, api_key: str, model_name: str, output_dir: Path):
+        self.api_key = api_key
+        self.model_name = model_name
+        self.output_dir = output_dir
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+    
+    def is_available(self) -> bool:
+        # MOCK: Would check if API key is valid and model exists
+        return bool(self.api_key)
+    
+    def synthesize(self, text: str, voice_style: str, output_path: str) -> TTSResult:
+        """
+        # MOCK — Replace with real Gemini TTS API call when available.
+        
+        Expected future implementation:
+        1. Call Gemini TTS API with text and voice_style
+        2. Receive audio bytes and word timings
+        3. Save audio to output_path
+        4. Return TTSResult with word_timings
+        """
+        logger.warning(f"[MOCK] GeminiTTSAdapter.synthesize() - real API not yet available")
+        logger.warning(f"[MOCK] Would use model: {self.model_name}")
+        
+        # Fall back to MockTTSAdapter behavior
+        mock_adapter = MockTTSAdapter(self.output_dir)
+        return mock_adapter.synthesize(text, voice_style, output_path)
+
+
+class NativeAudioAdapter(TTSAdapter):
+    """
+    # MOCK — Placeholder for gemini-native-audio API if available.
+    
+    Future adapter for native audio generation capabilities.
+    """
+    
+    def __init__(self, api_key: str, output_dir: Path):
+        self.api_key = api_key
+        self.output_dir = output_dir
+    
+    def is_available(self) -> bool:
+        # MOCK: Not available yet
+        return False
+    
+    def synthesize(self, text: str, voice_style: str, output_path: str) -> TTSResult:
+        """# MOCK — Implement when gemini-native-audio becomes available."""
+        return TTSResult(
+            success=False,
+            text=text,
+            audio_path="",
+            duration_ms=0,
+            error="NativeAudioAdapter not yet implemented"
+        )
+
+
+class ElevenLabsAdapter(TTSAdapter):
+    """
+    ElevenLabs TTS adapter.
+    
+    HOOK ONLY - NOT IMPLEMENTED.
+    
+    Future features:
+    - High-quality neural voices
+    - Voice cloning support
+    - Emotion styles
+    
+    To enable:
+    1. pip install elevenlabs
+    2. Set ELEVENLABS_API_KEY environment variable
+    3. Uncomment implementation
+    """
+    
+    def __init__(self, api_key: str = None, output_dir: Path = None):
+        self.api_key = api_key or os.getenv("ELEVENLABS_API_KEY", "")
+        self.output_dir = Path(output_dir) if output_dir else Path("uvg_output/audio")
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        
+        logger.info("ElevenLabsAdapter initialized (HOOK ONLY - not implemented)")
+    
+    def is_available(self) -> bool:
+        """ElevenLabs is NOT available - hook only."""
+        return False
+    
+    def synthesize(self, text: str, voice_style: str, output_path: str) -> TTSResult:
+        """
+        HOOK ONLY - Not implemented.
+        
+        Future implementation:
+        1. Call ElevenLabs API with text
+        2. Get audio stream
+        3. Extract word timings (via Whisper post-processing)
+        4. Save audio to output_path
+        """
+        raise NotImplementedError(
+            "ElevenLabsAdapter is a hook for future implementation. "
+            "Use AzureTTSAdapter or MockTTSAdapter instead. "
+            "To implement: pip install elevenlabs and add API integration."
+        )
+    
+    def list_voices(self) -> list:
+        """List available voices (hook only)."""
+        raise NotImplementedError("ElevenLabs voice listing not implemented")
+    
+    def clone_voice(self, samples: list) -> str:
+        """Clone voice from samples (hook only)."""
+        raise NotImplementedError("ElevenLabs voice cloning not implemented")
+
+
+class AzureTTSAdapter(TTSAdapter):
+    """
+    Azure Cognitive Services TTS adapter.
     
     Features:
+    - SSML support with emotion styles
+    - Word-level timestamps via Speech SDK
+    - Professional neural voices
+    - Rate and pitch control
+    """
+    
+    # Voice mapping
+    VOICE_MAP = {
+        "en-US": "en-US-JennyNeural",
+
+        "en-GB": "en-GB-SoniaNeural",
+        "default": "en-US-JennyNeural",
+    }
+    
+    # Style mapping
+    STYLE_MAP = {
+        "calm": "calm",
+        "cheerful": "cheerful",
+        "excited": "excited",
+        "friendly": "friendly",
+        "hopeful": "hopeful",
+        "sad": "sad",
+        "angry": "angry",
+        "fearful": "fearful",
+        "gentle": "gentle",
+        "serious": "serious",
+        "neutral": "neutral",
+        "empathetic": "empathetic",
+    }
+    
+    def __init__(
+        self,
+        subscription_key: str,
+        region: str = "eastus",
+        output_dir: Path = None,
+        voice_name: str = None,
+        locale: str = "en-US"
+    ):
+        """
+        Initialize Azure TTS adapter.
+        
+        Args:
+            subscription_key: Azure Speech subscription key
+            region: Azure region (e.g., "eastus")
+            output_dir: Output directory for audio files
+            voice_name: Voice name override
+            locale: Language locale
+        """
+        self.subscription_key = subscription_key
+        self.region = region
+        self.output_dir = Path(output_dir) if output_dir else Path("uvg_output/audio")
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        self.locale = locale
+        self.voice_name = voice_name or self.VOICE_MAP.get(locale, self.VOICE_MAP["default"])
+        
+        self._sdk_available = False
+        self._speech_config = None
+        self._init_sdk()
+    
+    def _init_sdk(self):
+        """Initialize Azure Speech SDK."""
+        try:
+            import azure.cognitiveservices.speech as speechsdk
+            
+            self._speech_config = speechsdk.SpeechConfig(
+                subscription=self.subscription_key,
+                region=self.region
+            )
+            self._speech_config.set_speech_synthesis_output_format(
+                speechsdk.SpeechSynthesisOutputFormat.Riff24Khz16BitMonoPcm
+            )
+            self._sdk_available = True
+            logger.info(f"Azure Speech SDK initialized (voice={self.voice_name})")
+            
+        except ImportError:
+            logger.warning("Azure Speech SDK not installed. Install with: pip install azure-cognitiveservices-speech")
+            self._sdk_available = False
+        except Exception as e:
+            logger.error(f"Azure SDK init failed: {e}")
+            self._sdk_available = False
+    
+    def is_available(self) -> bool:
+        """Check if Azure TTS is available."""
+        return self._sdk_available and bool(self.subscription_key)
+    
+    def _build_ssml(
+        self,
+        text: str,
+        voice_style: str = "neutral",
+        rate: str = "+0%",
+        pitch: str = "+0%"
+    ) -> str:
+        """
+        Build SSML markup for speech synthesis.
+        
+        Args:
+            text: Text to synthesize
+            voice_style: Emotion style
+            rate: Speaking rate adjustment
+            pitch: Pitch adjustment
+            
+        Returns:
+            SSML string
+        """
+        # Map style
+        style = self.STYLE_MAP.get(voice_style, "neutral")
+        
+        # Build SSML
+        ssml = f'''<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis"
+    xmlns:mstts="http://www.w3.org/2001/mstts"
+    xml:lang="{self.locale}">
+  <voice name="{self.voice_name}">
+    <mstts:express-as style="{style}">
+      <prosody rate="{rate}" pitch="{pitch}">
+        {text}
+      </prosody>
+    </mstts:express-as>
+  </voice>
+</speak>'''
+        
+        return ssml
+    
+    def synthesize(
+        self,
+        text: str,
+        voice_style: str = "neutral",
+        output_path: str = None
+    ) -> TTSResult:
+        """
+        Synthesize speech with Azure TTS.
+        
+        Args:
+            text: Text to synthesize
+            voice_style: Emotion style
+            output_path: Output audio file path
+            
+        Returns:
+            TTSResult with audio path and word timings
+        """
+        if not self.is_available():
+            logger.warning("Azure TTS not available, falling back to mock")
+            return MockTTSAdapter(self.output_dir).synthesize(text, voice_style, output_path)
+        
+        try:
+            import azure.cognitiveservices.speech as speechsdk
+            
+            if output_path is None:
+                output_path = str(self.output_dir / f"azure_tts_{hash(text) % 10000}.wav")
+            
+            # Build SSML
+            ssml = self._build_ssml(text, voice_style)
+            logger.debug(f"Azure TTS SSML: {ssml[:200]}...")
+            
+            # Set up audio config
+            audio_config = speechsdk.audio.AudioOutputConfig(filename=output_path)
+            
+            # Create synthesizer
+            synthesizer = speechsdk.SpeechSynthesizer(
+                speech_config=self._speech_config,
+                audio_config=audio_config
+            )
+            
+            # Collect word timings
+            word_timings = []
+            
+            def word_boundary_callback(evt):
+                """Callback for word boundary events."""
+                word_timings.append(WordTiming(
+                    word=evt.text,
+                    start_ms=int(evt.audio_offset / 10000),  # 100ns to ms
+                    end_ms=int((evt.audio_offset + evt.duration) / 10000)
+                ))
+            
+            synthesizer.synthesis_word_boundary.connect(word_boundary_callback)
+            
+            # Synthesize with SSML
+            result = synthesizer.speak_ssml_async(ssml).get()
+            
+            if result.reason == speechsdk.ResultReason.SynthesizingAudioCompleted:
+                duration_ms = int(result.audio_duration.total_seconds() * 1000)
+                
+                logger.info(f"Azure TTS: synthesized {len(text)} chars, {duration_ms}ms, {len(word_timings)} words")
+                
+                return TTSResult(
+                    success=True,
+                    text=text,
+                    audio_path=output_path,
+                    duration_ms=duration_ms,
+                    word_timings=word_timings,
+                    voice_style=voice_style
+                )
+            else:
+                error_msg = f"Azure TTS failed: {result.reason}"
+                if result.cancellation_details:
+                    error_msg += f" - {result.cancellation_details.reason}"
+                
+                logger.error(error_msg)
+                return TTSResult(
+                    success=False,
+                    text=text,
+                    audio_path="",
+                    duration_ms=0,
+                    error=error_msg
+                )
+                
+        except Exception as e:
+            logger.error(f"Azure TTS error: {e}")
+            return TTSResult(
+                success=False,
+                text=text,
+                audio_path="",
+                duration_ms=0,
+                error=str(e)
+            )
+
+
+class TTSEngine:
+    """
+    TTS engine with pluggable adapter system.
+    
+    Features:
+    - Pluggable adapters: mock, gemini, azure
     - Word-level timing extraction
     - Voice style per scene
     - 5 retries with exponential backoff
     - Loudness normalization to -14 LUFS
+    
+    Adapter selection:
+    - UVG_MOCK_MODE=true → MockTTSAdapter
+    - UVG_TTS_PROVIDER=gemini + key → GeminiTTSAdapter
+    - UVG_TTS_PROVIDER=azure + key → AzureTTSAdapter (built-in)
+    - Default → MockTTSAdapter
     """
     
     MAX_RETRIES = 5
@@ -99,7 +541,9 @@ class TTSEngine:
                  azure_region: str = "",
                  output_dir: Optional[Path] = None,
                  voice_locale: str = "en-US",
-                 voice_gender: str = "male"):
+                 voice_gender: str = "male",
+                 mock_mode: bool = False,
+                 tts_provider: str = ""):
         """
         Initialize TTS engine.
         
@@ -109,12 +553,16 @@ class TTSEngine:
             output_dir: Directory for audio files
             voice_locale: Voice locale (e.g., en-US)
             voice_gender: male, female, or narrator
+            mock_mode: Use mock TTS (generates silence with timings)
+            tts_provider: mock, gemini, or azure
         """
         self.azure_key = azure_key or os.getenv("AZURE_TTS_KEY", "")
         self.azure_region = azure_region or os.getenv("AZURE_TTS_REGION", "")
         self.output_dir = Path(output_dir) if output_dir else Path("./uvg_output/audio")
         self.voice_locale = voice_locale
         self.voice_gender = voice_gender
+        self.mock_mode = mock_mode or os.getenv("UVG_MOCK_MODE", "true").lower() == "true"
+        self.tts_provider = tts_provider or os.getenv("UVG_TTS_PROVIDER", "mock")
         
         self.output_dir.mkdir(parents=True, exist_ok=True)
         
@@ -122,8 +570,42 @@ class TTSEngine:
         self._speech_config = None
         self._sdk_available = False
         
-        # Verify availability
-        self._check_availability()
+        # Select adapter
+        self._adapter = self._select_adapter()
+        
+        # Verify Azure availability if needed
+        if self.tts_provider == "azure" and not self.mock_mode:
+            self._check_availability()
+    
+    def _select_adapter(self) -> TTSAdapter:
+        """Select appropriate TTS adapter based on config."""
+        # Mock mode always uses MockTTSAdapter
+        if self.mock_mode:
+            logger.info("Using MockTTSAdapter (UVG_MOCK_MODE=true)")
+            return MockTTSAdapter(self.output_dir)
+        
+        # Select by provider
+        if self.tts_provider == "gemini":
+            gemini_tts_key = os.getenv("UVG_GEMINI_TTS_KEY", "") or os.getenv("GEMINI_API_KEY", "")
+            model_name = os.getenv("UVG_GEMINI_TTS_MODEL", "gemini-2.5-flash-tts")
+            if gemini_tts_key:
+                logger.info(f"Using GeminiTTSAdapter with model {model_name}")
+                return GeminiTTSAdapter(gemini_tts_key, model_name, self.output_dir)
+            else:
+                logger.warning("No Gemini TTS key found, falling back to MockTTSAdapter")
+                return MockTTSAdapter(self.output_dir)
+        
+        elif self.tts_provider == "azure":
+            if self.azure_key and self.azure_region:
+                logger.info("Using Azure TTS (built-in adapter)")
+                return None  # Use built-in Azure implementation
+            else:
+                logger.warning("No Azure TTS credentials, falling back to MockTTSAdapter")
+                return MockTTSAdapter(self.output_dir)
+        
+        # Default: mock
+        logger.info("Using MockTTSAdapter (default)")
+        return MockTTSAdapter(self.output_dir)
     
     def _check_availability(self) -> bool:
         """Check if Azure SDK is available."""

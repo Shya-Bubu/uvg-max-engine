@@ -208,6 +208,21 @@ class UVGConfig:
     local_test_mode: bool = False
     
     # =========================================================================
+    # AI MODEL SELECTION
+    # =========================================================================
+    GEMINI_SCRIPT_MODEL: str = field(default_factory=lambda: os.getenv("UVG_GEMINI_SCRIPT_MODEL", "gemini-2.5-flash"))
+    GEMINI_CREATIVE_MODEL: str = field(default_factory=lambda: os.getenv("UVG_GEMINI_CREATIVE_MODEL", "gemini-2.5-flash-live"))
+    GEMINI_TTS_MODEL: str = field(default_factory=lambda: os.getenv("UVG_GEMINI_TTS_MODEL", "gemini-2.5-flash-tts"))
+    TTS_PROVIDER: str = field(default_factory=lambda: os.getenv("UVG_TTS_PROVIDER", "mock"))  # mock, gemini, azure
+    
+    # =========================================================================
+    # DEBUG & MOCK SETTINGS
+    # =========================================================================
+    UVG_DEBUG_SEED: int = field(default_factory=lambda: int(os.getenv("UVG_DEBUG_SEED", "42")) if os.getenv("UVG_DEBUG_SEED") else 42)
+    UVG_MOCK_MODE: bool = field(default_factory=lambda: os.getenv("UVG_MOCK_MODE", "true").lower() == "true")
+    MAX_DOWNLOAD_WORKERS: int = field(default_factory=lambda: int(os.getenv("MAX_DOWNLOAD_WORKERS", "6")))
+    
+    # =========================================================================
     # SCORING WEIGHTS (Option B: relevance-first)
     # =========================================================================
     w_relevance: float = 0.50

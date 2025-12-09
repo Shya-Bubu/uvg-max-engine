@@ -594,6 +594,89 @@ class MediaSearchEngine:
         """Save download log to file."""
         with open(path, 'w') as f:
             json.dump(self.download_log, f, indent=2)
+    
+    def rank_with_selector(self,
+                           candidates: List[MediaCandidate],
+                           prompt: str,
+                           top_k: int = 5) -> List[MediaCandidate]:
+        """
+        Rank downloaded candidates using uvg_selector.
+        
+        Args:
+            candidates: Downloaded candidates with downloaded_path set
+            prompt: Text prompt for semantic matching
+            top_k: Number of top candidates to return
+            
+        Returns:
+            Reordered list of candidates by relevance
+        """
+        # Filter to only downloaded candidates
+        downloaded = [c for c in candidates if c.downloaded_path]
+        
+        if not downloaded:
+            return candidates
+        
+        try:
+            from uvg_selector.clip_selector import rank_clips
+            
+            # Get paths for ranking
+            clip_paths = [c.downloaded_path for c in downloaded]
+            
+            # Rank with selector
+            ranked = rank_clips(prompt, clip_paths, top_k=top_k)
+            
+            # Reorder candidates based on ranking
+            path_to_candidate = {c.downloaded_path: c for c in downloaded}
+            reordered = []
+            
+            for r in ranked:
+                path = r["path"]
+                if path in path_to_candidate:
+                    candidate = path_to_candidate[path]
+                    # Store selector score in candidate
+                    candidate.title = f"{candidate.title} [score: {r.get('final_score', 0):.2f}]"
+                    reordered.append(candidate)
+            
+            # Add any remaining candidates not in ranking
+            ranked_paths = {r["path"] for r in ranked}
+            for c in downloaded:
+                if c.downloaded_path not in ranked_paths:
+                    reordered.append(c)
+            
+            logger.info(f"Ranked {len(reordered)} candidates with uvg_selector")
+            return reordered
+            
+        except ImportError:
+            logger.warning("uvg_selector not available, returning original order")
+            return candidates
+        except Exception as e:
+            logger.warning(f"Selector ranking failed: {e}")
+            return candidates
+    
+    def search_download_and_rank(self,
+                                  query: str,
+                                  max_candidates: int = 20,
+                                  max_downloads: int = 10,
+                                  top_k: int = 5) -> List[MediaCandidate]:
+        """
+        Search, download, and rank with uvg_selector.
+        
+        Args:
+            query: Search query (also used as prompt for ranking)
+            max_candidates: Max search results
+            max_downloads: Max downloads
+            top_k: Top K to return after ranking
+            
+        Returns:
+            Top-ranked downloaded candidates
+        """
+        # Search and download
+        downloaded = self.search_and_download(query, max_candidates, max_downloads)
+        
+        # Rank with selector
+        ranked = self.rank_with_selector(downloaded, query, top_k)
+        
+        return ranked
 
 
 # =============================================================================

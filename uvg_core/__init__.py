@@ -18,15 +18,17 @@ from .config import (
 from .hardware_detector import (
     HardwareDetector,
     HardwareProfile,
-    detect_hardware,
+    get_hardware_profile,
     get_optimal_settings,
 )
+
 
 from .gpu_memory_manager import (
     GPUMemoryManager,
     MemoryStatus,
-    get_memory_status,
-    run_with_memory_management,
+    get_memory_manager,
+    get_device,
+    clear_gpu_cache,
 )
 
 from .disk_watchdog import (

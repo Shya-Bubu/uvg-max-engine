@@ -382,6 +382,237 @@ class FFmpegAssembler:
             return json.loads(result.stdout)
         except Exception:
             return {}
+    
+    # =========================================================================
+    # PREMIUM FILTERS (Camera Motion, Color Grades, Captions)
+    # =========================================================================
+    
+    def get_camera_motion_filter(self, motion_type: str, duration: float) -> str:
+        """
+        Generate FFmpeg filter for camera motion effect.
+        
+        Args:
+            motion_type: Type of camera motion
+            duration: Clip duration in seconds
+            
+        Returns:
+            FFmpeg filter string
+        """
+        # Calculate zoom factor based on duration (subtle zoom)
+        zoom_speed = 0.001  # Zoom per frame at 30fps
+        
+        motion_filters = {
+            "slow-zoom-in": f"zoompan=z='min(zoom+{zoom_speed},1.15)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d={int(duration*self.fps)}:s={self.target_width}x{self.target_height}",
+            "slow-zoom-out": f"zoompan=z='if(eq(on,1),1.15,max(zoom-{zoom_speed},1))':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d={int(duration*self.fps)}:s={self.target_width}x{self.target_height}",
+            "pan-left": f"zoompan=z='1':x='if(eq(on,1),iw*0.1,min(x+2,iw*0.9))':y='ih/2-(ih/zoom/2)':d={int(duration*self.fps)}:s={self.target_width}x{self.target_height}",
+            "pan-right": f"zoompan=z='1':x='if(eq(on,1),iw*0.9,max(x-2,iw*0.1))':y='ih/2-(ih/zoom/2)':d={int(duration*self.fps)}:s={self.target_width}x{self.target_height}",
+            "tilt-up": f"zoompan=z='1':x='iw/2-(iw/zoom/2)':y='if(eq(on,1),ih*0.7,max(y-1,ih*0.3))':d={int(duration*self.fps)}:s={self.target_width}x{self.target_height}",
+            "tilt-down": f"zoompan=z='1':x='iw/2-(iw/zoom/2)':y='if(eq(on,1),ih*0.3,min(y+1,ih*0.7))':d={int(duration*self.fps)}:s={self.target_width}x{self.target_height}",
+            "static": "",  # No motion
+            "drone": f"zoompan=z='min(zoom+{zoom_speed*0.5},1.1)':x='iw/2-(iw/zoom/2)+sin(on/30)*50':y='ih/2-(ih/zoom/2)':d={int(duration*self.fps)}:s={self.target_width}x{self.target_height}",
+            "handheld": f"crop=w=iw*0.95:h=ih*0.95:x='(iw-ow)/2+sin(n/5)*10':y='(ih-oh)/2+cos(n/7)*10'",
+        }
+        
+        return motion_filters.get(motion_type, "")
+    
+    def get_color_grade_filter(self, grade: str) -> str:
+        """
+        Generate FFmpeg filter for color grading.
+        
+        Args:
+            grade: Color grade preset name
+            
+        Returns:
+            FFmpeg filter string
+        """
+        color_grades = {
+            "warm": "colorbalance=rs=.1:gs=.05:bs=-.1:rm=.1:gm=.05:bm=-.1,eq=saturation=1.1:contrast=1.05",
+            "cold": "colorbalance=rs=-.1:gs=-.05:bs=.1:rm=-.1:gm=-.05:bm=.1,eq=saturation=0.95:contrast=1.05",
+            "cinematic": "colorbalance=rs=.05:gs=0:bs=-.05,eq=saturation=1.1:contrast=1.1:gamma=0.95,unsharp=5:5:0.5",
+            "documentary": "eq=saturation=0.9:contrast=1.05:brightness=0.02",
+            "desaturated": "eq=saturation=0.6:contrast=1.1",
+            "soft": "eq=saturation=0.95:contrast=0.95:brightness=0.02,unsharp=3:3:0.3",
+            "dramatic": "colorbalance=rs=.05:gs=-.02:bs=-.08,eq=saturation=1.2:contrast=1.15:gamma=0.9",
+            "vintage": "colorbalance=rs=.1:gs=.05:bs=-.05,eq=saturation=0.8:contrast=1.1,vignette=PI/4",
+        }
+        
+        return color_grades.get(grade, "")
+    
+    def apply_camera_motion(self, 
+                            input_path: str, 
+                            output_path: str,
+                            motion_type: str,
+                            duration: float = 0) -> bool:
+        """
+        Apply camera motion effect to a clip.
+        
+        Args:
+            input_path: Input video path
+            output_path: Output video path
+            motion_type: Type of camera motion
+            duration: Optional duration override
+            
+        Returns:
+            True if successful
+        """
+        if not duration:
+            info = self.get_video_info(input_path)
+            duration = float(info.get("format", {}).get("duration", 4))
+        
+        motion_filter = self.get_camera_motion_filter(motion_type, duration)
+        
+        if not motion_filter:
+            # No motion, just copy
+            return self._copy_video(input_path, output_path)
+        
+        cmd = [
+            "ffmpeg", "-y",
+            "-i", input_path,
+            "-vf", motion_filter,
+            *self._get_encoder_settings(),
+            "-c:a", "copy",
+            output_path
+        ]
+        
+        success, error = self._run_ffmpeg(cmd)
+        if not success:
+            logger.warning(f"Camera motion failed: {error}")
+        return success
+    
+    def apply_color_grade(self,
+                          input_path: str,
+                          output_path: str,
+                          grade: str) -> bool:
+        """
+        Apply color grade to a clip.
+        
+        Args:
+            input_path: Input video path
+            output_path: Output video path
+            grade: Color grade preset
+            
+        Returns:
+            True if successful
+        """
+        grade_filter = self.get_color_grade_filter(grade)
+        
+        if not grade_filter:
+            return self._copy_video(input_path, output_path)
+        
+        cmd = [
+            "ffmpeg", "-y",
+            "-i", input_path,
+            "-vf", grade_filter,
+            *self._get_encoder_settings(),
+            "-c:a", "copy",
+            output_path
+        ]
+        
+        success, error = self._run_ffmpeg(cmd)
+        if not success:
+            logger.warning(f"Color grade failed: {error}")
+        return success
+    
+    def apply_caption_filter(self,
+                             input_path: str,
+                             output_path: str,
+                             caption_filter: str) -> bool:
+        """
+        Apply animated caption overlay filter.
+        
+        Args:
+            input_path: Input video path
+            output_path: Output video path
+            caption_filter: FFmpeg drawtext filter chain from kinetic_captions
+            
+        Returns:
+            True if successful
+        """
+        if not caption_filter or caption_filter == "null":
+            return self._copy_video(input_path, output_path)
+        
+        cmd = [
+            "ffmpeg", "-y",
+            "-i", input_path,
+            "-vf", caption_filter,
+            *self._get_encoder_settings(),
+            "-c:a", "copy",
+            output_path
+        ]
+        
+        success, error = self._run_ffmpeg(cmd)
+        if not success:
+            logger.warning(f"Caption overlay failed: {error}")
+        return success
+    
+    def apply_premium_effects(self,
+                              input_path: str,
+                              output_path: str,
+                              motion_type: str = "",
+                              color_grade: str = "",
+                              caption_filter: str = "",
+                              duration: float = 0) -> bool:
+        """
+        Apply all premium effects in a single pass.
+        
+        Args:
+            input_path: Input video path
+            output_path: Output video path
+            motion_type: Camera motion type
+            color_grade: Color grade preset
+            caption_filter: Animated caption filter
+            duration: Clip duration
+            
+        Returns:
+            True if successful
+        """
+        filters = []
+        
+        if motion_type and motion_type != "static":
+            if not duration:
+                info = self.get_video_info(input_path)
+                duration = float(info.get("format", {}).get("duration", 4))
+            motion_filter = self.get_camera_motion_filter(motion_type, duration)
+            if motion_filter:
+                filters.append(motion_filter)
+        
+        if color_grade:
+            grade_filter = self.get_color_grade_filter(color_grade)
+            if grade_filter:
+                filters.append(grade_filter)
+        
+        if caption_filter and caption_filter != "null":
+            filters.append(caption_filter)
+        
+        if not filters:
+            return self._copy_video(input_path, output_path)
+        
+        combined_filter = ",".join(filters)
+        
+        cmd = [
+            "ffmpeg", "-y",
+            "-i", input_path,
+            "-vf", combined_filter,
+            *self._get_encoder_settings(),
+            "-c:a", "copy",
+            output_path
+        ]
+        
+        success, error = self._run_ffmpeg(cmd)
+        if not success:
+            logger.warning(f"Premium effects failed: {error}")
+        return success
+    
+    def _copy_video(self, input_path: str, output_path: str) -> bool:
+        """Copy video without re-encoding."""
+        cmd = [
+            "ffmpeg", "-y",
+            "-i", input_path,
+            "-c", "copy",
+            output_path
+        ]
+        success, _ = self._run_ffmpeg(cmd)
+        return success
 
 
 # =============================================================================
@@ -405,3 +636,209 @@ def assemble_video(scenes: List[Dict], output_name: str = "final.mp4") -> Assemb
     ]
     
     return assembler.assemble_with_transitions(assembly_scenes, output_name)
+
+
+# =============================================================================
+# LUT SUPPORT
+# =============================================================================
+
+# LUT mapping by color grade name
+LUT_FILES = {
+    "cinematic": "luts/kodak_2395.cube",
+    "kodak_2395": "luts/kodak_2395.cube",
+    "motivational": "luts/orange_teal.cube",
+    "orange_teal": "luts/orange_teal.cube",
+    "documentary": "luts/nature_green.cube",
+    "nature_green": "luts/nature_green.cube",
+    "neutral": "luts/neutral.cube",
+    "corporate": "luts/neutral.cube",
+    "warm": "luts/orange_teal.cube",
+    "cool": "luts/kodak_2395.cube",
+}
+
+
+def get_lut_path(grade_name: str) -> str:
+    """
+    Get LUT file path for a grade name.
+    
+    Args:
+        grade_name: Color grade name
+        
+    Returns:
+        Path to LUT file or empty string
+    """
+    from pathlib import Path
+    
+    lut_file = LUT_FILES.get(grade_name.lower(), "")
+    if not lut_file:
+        return ""
+    
+    # Check if file exists
+    lut_path = Path(lut_file)
+    if lut_path.exists():
+        return str(lut_path)
+    
+    # Try relative to project root
+    for root in [Path("."), Path(__file__).parent.parent]:
+        full_path = root / lut_file
+        if full_path.exists():
+            return str(full_path)
+    
+    return ""
+
+
+def apply_lut_to_video(
+    input_path: str,
+    output_path: str,
+    lut_path: str
+) -> bool:
+    """
+    Apply LUT color grading to video.
+    
+    Args:
+        input_path: Input video
+        output_path: Output video
+        lut_path: Path to .cube LUT file
+        
+    Returns:
+        True if successful
+    """
+    import subprocess
+    
+    cmd = [
+        "ffmpeg", "-y",
+        "-i", input_path,
+        "-vf", f"lut3d={lut_path}",
+        "-c:v", "libx264",
+        "-preset", "fast",
+        "-crf", "23",
+        "-c:a", "copy",
+        output_path
+    ]
+    
+    try:
+        result = subprocess.run(cmd, capture_output=True, timeout=300)
+        return result.returncode == 0
+    except Exception:
+        return False
+
+
+# =============================================================================
+# PREMIUM TRANSITIONS
+# =============================================================================
+
+PREMIUM_TRANSITIONS = {
+    # Standard xfade transitions
+    "fade": "fade",
+    "dissolve": "dissolve",
+    "wipeleft": "wipeleft",
+    "wiperight": "wiperight",
+    "wipeup": "wipeup",
+    "wipedown": "wipedown",
+    "slideleft": "slideleft",
+    "slideright": "slideright",
+    "slideup": "slideup",
+    "slidedown": "slidedown",
+    
+    # Premium transitions (custom filter chains)
+    "zoom_through": "zoompan=z='1+0.002*on':d=30:s=1080x1920,fade",
+    "blur_dissolve": "gblur=sigma=10,fade",
+    "film_flash": "fade=t=in:st=0:d=0.1:color=white,fade",
+    "whip_pan": "crop=iw*0.6:ih:x='(iw-out_w)*t/2':y=0,fade",
+    "spin_fade": "rotate=PI/8*t:c=none,fade",
+}
+
+
+def get_transition_filter(
+    transition_type: str,
+    duration: float = 0.5
+) -> str:
+    """
+    Get FFmpeg filter for transition type.
+    
+    Args:
+        transition_type: Transition name
+        duration: Transition duration
+        
+    Returns:
+        xfade filter string
+    """
+    # Map to xfade transition name
+    xfade_type = PREMIUM_TRANSITIONS.get(transition_type.lower(), "fade")
+    
+    # If it's a complex filter, just use fade for xfade
+    if "," in xfade_type or "=" in xfade_type:
+        xfade_type = "fade"
+    
+    return f"xfade=transition={xfade_type}:duration={duration}"
+
+
+# =============================================================================
+# AUDIO MIXING INTEGRATION
+# =============================================================================
+
+def mix_audio_with_video(
+    video_path: str,
+    voice_path: str,
+    music_path: str = None,
+    output_path: str = None,
+    apply_ducking: bool = True
+) -> str:
+    """
+    Mix audio tracks and combine with video.
+    
+    Args:
+        video_path: Input video
+        voice_path: Voice/narration audio
+        music_path: Optional background music
+        output_path: Output path
+        apply_ducking: Apply sidechain ducking
+        
+    Returns:
+        Output path if successful, empty string otherwise
+    """
+    from pathlib import Path
+    
+    if output_path is None:
+        output_path = str(Path(video_path).with_suffix(".mixed.mp4"))
+    
+    try:
+        from .audio_mixer import AudioMixer
+        
+        mixer = AudioMixer()
+        
+        # Mix audio
+        if music_path and apply_ducking:
+            mix_result = mixer.mix_voice_and_music(voice_path, music_path)
+            mixed_audio = mix_result.output_path if mix_result.success else voice_path
+        else:
+            # Just normalize voice
+            norm_result = mixer.normalize_loudness(voice_path)
+            mixed_audio = norm_result.output_path if norm_result.success else voice_path
+        
+        # Combine with video
+        import subprocess
+        cmd = [
+            "ffmpeg", "-y",
+            "-i", video_path,
+            "-i", mixed_audio,
+            "-map", "0:v",
+            "-map", "1:a",
+            "-c:v", "copy",
+            "-c:a", "aac",
+            "-b:a", "192k",
+            "-shortest",
+            output_path
+        ]
+        
+        result = subprocess.run(cmd, capture_output=True, timeout=300)
+        if result.returncode == 0:
+            return output_path
+        
+    except ImportError:
+        logger.warning("AudioMixer not available")
+    except Exception as e:
+        logger.error(f"Audio mixing failed: {e}")
+    
+    return ""
+

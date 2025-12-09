@@ -371,3 +371,151 @@ def generate_thumbnail(video_path: str,
     """Generate trending thumbnail."""
     generator = ThumbnailGenerator()
     return generator.generate_trending_thumbnail(video_path, title, style)
+
+
+def extract_best_aesthetic_frame(
+    video_path: str,
+    num_samples: int = 10,
+    output_dir: str = None
+) -> str:
+    """
+    Extract the most aesthetically pleasing frame from video.
+    
+    Uses uvg_selector's aesthetic scoring to find the best frame.
+    
+    Args:
+        video_path: Path to video
+        num_samples: Number of frames to sample
+        output_dir: Output directory for frame
+        
+    Returns:
+        Path to best frame image
+    """
+    from pathlib import Path
+    import subprocess
+    
+    if output_dir is None:
+        output_dir = Path("uvg_output/thumbnails")
+    else:
+        output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Get video duration
+    try:
+        cmd = ["ffprobe", "-v", "quiet", "-show_entries", "format=duration",
+               "-of", "default=noprint_wrappers=1:nokey=1", video_path]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+        duration = float(result.stdout.strip())
+    except Exception:
+        duration = 30.0  # Default
+    
+    # Extract sample frames
+    frames = []
+    for i in range(num_samples):
+        # Avoid very start and end
+        time_sec = duration * (0.1 + 0.8 * (i / max(1, num_samples - 1)))
+        frame_path = output_dir / f"sample_{i:02d}.jpg"
+        
+        cmd = [
+            "ffmpeg", "-y",
+            "-ss", str(time_sec),
+            "-i", video_path,
+            "-vframes", "1",
+            "-q:v", "2",
+            str(frame_path)
+        ]
+        
+        try:
+            subprocess.run(cmd, capture_output=True, timeout=10)
+            if frame_path.exists():
+                frames.append((str(frame_path), time_sec))
+        except Exception:
+            pass
+    
+    if not frames:
+        # Fallback to golden ratio extraction
+        generator = ThumbnailGenerator(output_dir=output_dir)
+        return generator.extract_best_frame(video_path)
+    
+    # Score frames aesthetically
+    best_frame = frames[len(frames) // 3][0]  # Default to 1/3 point
+    best_score = 0.0
+    
+    try:
+        from uvg_selector.aesthetic import score_aesthetic
+        
+        for frame_path, _ in frames:
+            try:
+                import cv2
+                img = cv2.imread(frame_path)
+                if img is not None:
+                    scores = score_aesthetic([img])
+                    score = scores[0] if scores else 0.5
+                    if score > best_score:
+                        best_score = score
+                        best_frame = frame_path
+            except Exception:
+                pass
+                
+    except ImportError:
+        logger.debug("Aesthetic scorer not available, using fallback")
+    
+    # Clean up non-best frames
+    for frame_path, _ in frames:
+        if frame_path != best_frame:
+            try:
+                Path(frame_path).unlink()
+            except Exception:
+                pass
+    
+    # Rename best frame
+    best_output = output_dir / f"best_frame_{Path(video_path).stem}.jpg"
+    try:
+        Path(best_frame).rename(best_output)
+        return str(best_output)
+    except Exception:
+        return best_frame
+
+
+def generate_thumbnail_with_style_pack(
+    video_path: str,
+    title: str,
+    style_pack = None,
+    output_name: str = None
+) -> ThumbnailResult:
+    """
+    Generate thumbnail using style pack configuration.
+    
+    Args:
+        video_path: Path to video
+        title: Thumbnail title text
+        style_pack: StylePack object
+        output_name: Output filename
+        
+    Returns:
+        ThumbnailResult
+    """
+    # Determine style from pack
+    style = "cinematic"  # Default
+    
+    if style_pack is not None:
+        pack_name = getattr(style_pack, 'name', 'cinematic')
+        
+        # Map pack names to thumbnail styles
+        style_map = {
+            "cinematic": "cinematic",
+            "motivational": "motivational",
+            "corporate": "youtube",
+            "documentary": "cinematic",
+            "energetic": "tiktok",
+        }
+        style = style_map.get(pack_name, "cinematic")
+    
+    generator = ThumbnailGenerator()
+    return generator.generate_trending_thumbnail(video_path, title, style, output_name)
+
+
+def get_thumbnail_styles() -> List[str]:
+    """Get list of available thumbnail styles."""
+    return list(THUMBNAIL_STYLES.keys())
+

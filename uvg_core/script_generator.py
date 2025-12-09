@@ -181,16 +181,29 @@ class ScriptGenerator:
     Generates scripts with fallback chain.
     
     Priority:
-    1. Gemini API
+    1. Gemini API (gemini-2.5-flash by default)
     2. Gemma 2B local
     3. Template fallback
+    
+    In mock mode, returns deterministic template scripts.
     """
+    
+    # MOCK: Deterministic mock response for testing
+    MOCK_SCRIPT_RESPONSE = '''[
+        {"text": "Welcome to this incredible journey of discovery.", "emotion": "awe", "tension": 0.3},
+        {"text": "Every step brings us closer to understanding.", "emotion": "hope", "tension": 0.5},
+        {"text": "The path ahead holds endless possibilities.", "emotion": "inspirational", "tension": 0.7},
+        {"text": "Together, we can achieve the extraordinary.", "emotion": "energetic", "tension": 0.6},
+        {"text": "This is just the beginning of something amazing.", "emotion": "joy", "tension": 0.4}
+    ]'''
     
     def __init__(self, 
                  gemini_api_key: str = "",
                  enable_gemini: bool = True,
                  enable_local_fallback: bool = True,
-                 cache_dir: Optional[Path] = None):
+                 cache_dir: Optional[Path] = None,
+                 model_name: str = "",
+                 mock_mode: bool = False):
         """
         Initialize script generator.
         
@@ -199,11 +212,15 @@ class ScriptGenerator:
             enable_gemini: Enable Gemini API
             enable_local_fallback: Enable Gemma local model
             cache_dir: Directory to cache results
+            model_name: Gemini model name (default from env/config)
+            mock_mode: Force mock responses for testing
         """
         self.gemini_api_key = gemini_api_key or os.getenv("GEMINI_API_KEY", "")
         self.enable_gemini = enable_gemini and bool(self.gemini_api_key)
         self.enable_local_fallback = enable_local_fallback
         self.cache_dir = Path(cache_dir) if cache_dir else None
+        self.model_name = model_name or os.getenv("UVG_GEMINI_SCRIPT_MODEL", "gemini-2.5-flash")
+        self.mock_mode = mock_mode or os.getenv("UVG_MOCK_MODE", "false").lower() == "true"
         
         # Gemini client (lazy init)
         self._gemini_model = None
@@ -243,7 +260,12 @@ class ScriptGenerator:
             logger.debug(f"Failed to cache result: {e}")
     
     def _call_gemini(self, prompt: str) -> Optional[str]:
-        """Call Gemini API."""
+        """Call Gemini API with configurable model. NO FALLBACK to 1.5."""
+        # MOCK: Return deterministic response in mock mode
+        if self.mock_mode:
+            logger.info("[MOCK] Using mock Gemini response for script generation")
+            return self.MOCK_SCRIPT_RESPONSE
+        
         if not self.enable_gemini:
             return None
         
@@ -252,16 +274,19 @@ class ScriptGenerator:
             
             if self._gemini_model is None:
                 genai.configure(api_key=self.gemini_api_key)
-                self._gemini_model = genai.GenerativeModel('gemini-1.5-flash')
+                # Use configurable model name (default: gemini-2.5-flash)
+                # NO FALLBACK to gemini-1.5-flash - use mock or fail
+                self._gemini_model = genai.GenerativeModel(self.model_name)
+                logger.info(f"Using Gemini model: {self.model_name}")
             
             response = self._gemini_model.generate_content(prompt)
             return response.text.strip()
             
         except ImportError:
-            logger.warning("google-generativeai not installed")
+            logger.error("google-generativeai not installed. Use UVG_MOCK_MODE=true for testing.")
             return None
         except Exception as e:
-            logger.warning(f"Gemini API failed: {e}")
+            logger.error(f"Gemini API failed for model {self.model_name}: {e}. Use UVG_MOCK_MODE=true for testing.")
             return None
     
     def _call_gemma_local(self, prompt: str) -> Optional[str]:
@@ -387,12 +412,27 @@ Output ONLY the JSON array, no explanations.
         # Parse result or use template
         if result:
             try:
-                # Clean up result (remove markdown code blocks if present)
+                # Robust JSON parsing:
+                # 1. Strip markdown code blocks
+                # 2. Find first '[' ... ']' bracket pair
                 clean_result = result.strip()
-                if clean_result.startswith("```"):
-                    clean_result = clean_result.split("```")[1]
-                    if clean_result.startswith("json"):
-                        clean_result = clean_result[4:]
+                
+                # Remove markdown fences
+                if "```" in clean_result:
+                    parts = clean_result.split("```")
+                    for part in parts:
+                        part = part.strip()
+                        if part.startswith("json"):
+                            part = part[4:].strip()
+                        if part.startswith("["):
+                            clean_result = part
+                            break
+                
+                # Find first [...] bracket pair
+                start_idx = clean_result.find("[")
+                end_idx = clean_result.rfind("]")
+                if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
+                    clean_result = clean_result[start_idx:end_idx + 1]
                 
                 scenes_data = json.loads(clean_result)
                 
@@ -415,7 +455,7 @@ Output ONLY the JSON array, no explanations.
                 logger.info(f"Generated script from {source} with {len(script.scenes)} scenes")
                 return script
                 
-            except (json.JSONDecodeError, KeyError, TypeError) as e:
+            except (json.JSONDecodeError, KeyError, TypeError, ValueError) as e:
                 logger.warning(f"Failed to parse script result: {e}")
         
         # Emergency fallback to template
