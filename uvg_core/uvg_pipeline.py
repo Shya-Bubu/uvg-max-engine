@@ -166,6 +166,12 @@ class UVGPipeline:
             "ffmpeg": lambda: self._load_ffmpeg_assembler(),
             "export": lambda: self._load_export_optimizer(),
             "thumbnail": lambda: self._load_thumbnail_generator(),
+            # NEW modules for v2.1
+            "deterministic": lambda: self._load_deterministic(),
+            "license_tracker": lambda: self._load_license_tracker(),
+            "scene_emotion": lambda: self._load_scene_emotion(),
+            "speed_ramp": lambda: self._load_speed_ramp(),
+            "music_sync": lambda: self._load_music_sync(),
         }
         
         if name in module_map:
@@ -273,6 +279,27 @@ class UVGPipeline:
         from .thumbnail_generator import ThumbnailGenerator
         return ThumbnailGenerator(output_dir=self.config.output_dir / "thumbnails")
     
+    # NEW module loaders for v2.1
+    def _load_deterministic(self):
+        from .deterministic import get_deterministic_context
+        return get_deterministic_context()
+    
+    def _load_license_tracker(self):
+        from .license_metadata import get_license_tracker
+        return get_license_tracker()
+    
+    def _load_scene_emotion(self):
+        from .scene_emotion import SceneEmotionController
+        return SceneEmotionController()
+    
+    def _load_speed_ramp(self):
+        from .speed_ramp import SpeedRampEngine
+        return SpeedRampEngine(output_dir=self.config.output_dir / "speed_ramp")
+    
+    def _load_music_sync(self):
+        from .music_engine import MusicSyncEngine
+        return MusicSyncEngine(output_dir=self.config.output_dir / "music")
+    
     # -------------------------------------------------------------------------
     # Main Pipeline
     # -------------------------------------------------------------------------
@@ -304,6 +331,23 @@ class UVGPipeline:
         timing = {}
         errors = []
         warnings = []
+        
+        # Initialize deterministic mode if needed
+        if script and script.get("video_meta", {}).get("deterministic_mode", False):
+            try:
+                from .deterministic import init_deterministic_mode
+                seed = script.get("video_meta", {}).get("random_seed", 42)
+                init_deterministic_mode(enabled=True, seed=seed)
+                logger.info(f"Deterministic mode enabled with seed={seed}")
+            except ImportError:
+                pass
+        
+        # Initialize license tracker
+        try:
+            from .license_metadata import reset_license_tracker
+            reset_license_tracker()
+        except ImportError:
+            pass
         
         def progress(step: str, pct: float):
             if on_progress:
@@ -661,3 +705,30 @@ def generate_video(topic: str, style: str = "cinematic") -> str:
     pipeline = UVGPipeline(config)
     result = pipeline.run(topic=topic)
     return result.output_path if result.success else ""
+
+
+def run_from_json(script_dict: Dict[str, Any]) -> PipelineResult:
+    """
+    Run pipeline from JSON schema v2.1 script.
+    
+    Args:
+        script_dict: Complete JSON script following schema_v2.py format
+        
+    Returns:
+        PipelineResult
+    """
+    video_meta = script_dict.get("video_meta", {})
+    
+    # Extract config from script
+    config = PipelineConfig(
+        target_platform=video_meta.get("narrative_style", "youtube"),
+        style_pack=video_meta.get("narrative_style", "cinematic"),
+        width=video_meta.get("resolution", {}).get("width", 1080),
+        height=video_meta.get("resolution", {}).get("height", 1920),
+        enable_captions=video_meta.get("include_captions", True),
+        mock_mode=False
+    )
+    
+    pipeline = UVGPipeline(config)
+    return pipeline.run(script=script_dict)
+

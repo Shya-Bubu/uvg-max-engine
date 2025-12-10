@@ -383,3 +383,52 @@ def get_preset_for_emotion(emotion: str) -> str:
     """Get appropriate VFX preset for emotion."""
     engine = VFXEngine()
     return engine.select_preset_by_emotion(emotion)
+
+
+def apply_emotion_vfx(
+    clip_path: str,
+    emotion: str = "neutral",
+    output_path: str = None
+) -> str:
+    """
+    Apply VFX based on scene emotion using scene_emotion module.
+    
+    Integrates with uvg_core.scene_emotion.SceneEmotionController
+    to get emotion-specific VFX parameters (bloom, contrast, saturation).
+    
+    Args:
+        clip_path: Input clip path
+        emotion: Scene emotion (calm, exciting, dramatic, etc.)
+        output_path: Output path (optional)
+        
+    Returns:
+        Path to processed clip
+    """
+    engine = VFXEngine()
+    
+    # Try to get parameters from scene_emotion module
+    try:
+        from uvg_core.scene_emotion import SceneEmotionController
+        controller = SceneEmotionController()
+        config = controller.get_config(emotion)
+        
+        # Use emotion config for VFX parameters
+        bloom_intensity = config.vfx_bloom
+        contrast = config.vfx_contrast
+        
+        # Map emotion to preset
+        preset = engine.select_preset_by_emotion(emotion)
+        
+        # Apply preset first
+        result = engine.apply_preset(clip_path, preset, output_path)
+        
+        # Apply bloom if intensity > 0.3
+        if bloom_intensity > 0.3:
+            result = engine.add_bloom(result, bloom_intensity)
+        
+        return result
+        
+    except ImportError:
+        # Fallback to simple preset selection
+        preset = engine.select_preset_by_emotion(emotion)
+        return engine.apply_preset(clip_path, preset, output_path)

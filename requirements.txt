@@ -1,4 +1,6 @@
 # UVG MAX Engine - Requirements
+# $300 Fiverr Quality at $0 Cost
+
 # Core
 python-dotenv>=1.0.0
 requests>=2.31.0
@@ -7,14 +9,15 @@ tqdm>=4.66.0
 # AI/ML
 torch>=2.0.0
 open-clip-torch>=2.20.0
-google-generativeai>=0.3.0
 transformers>=4.35.0
 
-# Azure TTS
-azure-cognitiveservices-speech>=1.32.0
+# Fish-Speech TTS (Primary - FREE)
+# Fish-Speech is installed separately, see: https://github.com/fishaudio/fish-speech
+# It runs as a local server, no pip package needed
 
-# Whisper (word timing)
+# Whisper (word timing extraction)
 openai-whisper>=20231117
+faster-whisper>=0.9.0  # Faster alternative
 
 # Computer Vision
 opencv-python>=4.8.0
@@ -27,9 +30,10 @@ librosa>=0.10.0
 pyloudnorm>=0.1.1
 pyttsx3>=2.90  # Fallback TTS
 moviepy>=1.0.3
+pydub>=0.25.1
 
-# Video/FFmpeg (system dependency)
-# ffmpeg-python>=0.2.0  # Optional wrapper
+# Video/FFmpeg (system dependency - install separately)
+# FFmpeg must be installed: https://ffmpeg.org/download.html
 
 # ONNX (for CLIP selector)
 onnxruntime>=1.16.0
@@ -38,5 +42,9 @@ onnxruntime>=1.16.0
 pytest>=7.4.0
 pytest-cov>=4.1.0
 
-# Colab UI
+# Web UI
+gradio>=4.0.0
 ipywidgets>=8.0.0
+
+# YAML (for style packs)
+PyYAML>=6.0.0

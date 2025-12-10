@@ -294,6 +294,114 @@ class ElevenLabsAdapter(TTSAdapter):
         raise NotImplementedError("ElevenLabs voice cloning not implemented")
 
 
+class FishSpeechAdapter(TTSAdapter):
+    """
+    Fish-Speech S1 TTS adapter.
+    
+    Primary TTS engine for UVG MAX. Features:
+    - 50+ emotion markers
+    - Natural prosody
+    - Zero API cost (local model)
+    - Automatic word timestamps via Whisper
+    
+    Uses uvg_core.fish_speech_adapter for actual synthesis.
+    """
+    
+    def __init__(self, output_dir: Path = None, model_path: str = None):
+        """
+        Initialize Fish-Speech adapter.
+        
+        Args:
+            output_dir: Output directory for audio files
+            model_path: Path to Fish-Speech model (optional)
+        """
+        self.output_dir = Path(output_dir) if output_dir else Path("uvg_output/audio")
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        self.model_path = model_path
+        self._adapter = None
+        
+        logger.info("FishSpeechAdapter initialized")
+    
+    def _get_adapter(self):
+        """Lazy load the actual Fish-Speech adapter."""
+        if self._adapter is None:
+            try:
+                from uvg_core.fish_speech_adapter import FishSpeechTTS
+                self._adapter = FishSpeechTTS(output_dir=self.output_dir)
+            except ImportError:
+                logger.warning("fish_speech_adapter not available, using mock")
+                return None
+        return self._adapter
+    
+    def is_available(self) -> bool:
+        """Check if Fish-Speech is available."""
+        adapter = self._get_adapter()
+        return adapter is not None and adapter.is_available()
+    
+    def synthesize(self, text: str, voice_style: str, output_path: str) -> TTSResult:
+        """
+        Synthesize speech with Fish-Speech S1.
+        
+        Args:
+            text: Text to synthesize
+            voice_style: Voice preset (documentary, motivational, etc.)
+            output_path: Path to save audio
+            
+        Returns:
+            TTSResult with audio path and word timings
+        """
+        adapter = self._get_adapter()
+        
+        if adapter is None:
+            # Fall back to mock
+            logger.warning("Fish-Speech not available, using mock synthesis")
+            return TTSResult(
+                success=False,
+                text=text,
+                audio_path="",
+                duration_ms=0,
+                error="Fish-Speech adapter not available"
+            )
+        
+        try:
+            # Use the actual Fish-Speech adapter
+            result = adapter.synthesize(text=text, voice_style=voice_style)
+            
+            if result.success:
+                # Convert FishSpeechResult to TTSResult
+                word_timings = [
+                    WordTiming(word=w["word"], start_ms=w["start_ms"], end_ms=w["end_ms"])
+                    for w in result.word_timings
+                ]
+                
+                return TTSResult(
+                    success=True,
+                    text=text,
+                    audio_path=result.audio_path,
+                    duration_ms=result.duration_ms,
+                    word_timings=word_timings,
+                    voice_style=voice_style
+                )
+            else:
+                return TTSResult(
+                    success=False,
+                    text=text,
+                    audio_path="",
+                    duration_ms=0,
+                    error=result.error
+                )
+                
+        except Exception as e:
+            logger.error(f"Fish-Speech synthesis failed: {e}")
+            return TTSResult(
+                success=False,
+                text=text,
+                audio_path="",
+                duration_ms=0,
+                error=str(e)
+            )
+
+
 class AzureTTSAdapter(TTSAdapter):
     """
     Azure Cognitive Services TTS adapter.

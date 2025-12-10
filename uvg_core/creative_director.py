@@ -2,6 +2,7 @@
 UVG MAX Creative Director Module
 
 Master AI layer for all creative decisions.
+Fully integrated with scene_emotion.py for unified emotion-driven processing.
 Includes Scene Visualizer for detailed visual descriptors.
 """
 
@@ -409,6 +410,139 @@ class CreativeDirector:
                 return style
         return "calm"
     
+    def _get_emotion_driven_params(self, emotion: str) -> Dict[str, Any]:
+        """
+        Get all creative parameters from scene_emotion module.
+        
+        This is the KEY INTEGRATION - all decisions flow from emotion.
+        
+        Args:
+            emotion: Scene emotion (calm, exciting, dramatic, etc.)
+            
+        Returns:
+            Dict with vfx, sfx, music, color, motion parameters
+        """
+        try:
+            from .scene_emotion import (
+                get_emotion_config,
+                get_vfx_for_emotion,
+                get_sfx_for_emotion,
+                get_music_for_emotion,
+                get_controller
+            )
+            
+            config = get_emotion_config(emotion)
+            vfx = get_vfx_for_emotion(emotion)
+            sfx = get_sfx_for_emotion(emotion)
+            music = get_music_for_emotion(emotion)
+            controller = get_controller()
+            color = controller.get_color_params(emotion)
+            motion = controller.get_motion_params(emotion)
+            
+            return {
+                "vfx": vfx,
+                "sfx": sfx,
+                "music": music,
+                "color": color,
+                "motion": motion,
+                "config": config,
+            }
+        except ImportError:
+            logger.warning("scene_emotion module not available, using defaults")
+            return {
+                "vfx": {"bloom": 0.2, "contrast": 1.0, "saturation": 1.0, "vignette": 0.1},
+                "sfx": {"intensity": 0.4, "types": ["subtle"]},
+                "music": {"intensity": 0.5, "volume_multiplier": 0.5},
+                "color": {"temperature": 5500, "saturation": 1.0, "contrast": 1.0},
+                "motion": {"speed": 1.0, "shake": 0.0},
+                "config": None,
+            }
+    
+    def _emotion_to_vfx_preset(self, emotion: str) -> str:
+        """
+        Map emotion to VFX preset name using scene_emotion data.
+        """
+        emotion_vfx_map = {
+            "calm": "romantic",
+            "exciting": "high_energy",
+            "dramatic": "dramatic",
+            "tense": "noir",
+            "joyful": "travel",
+            "sad": "vintage",
+            "mysterious": "noir",
+            "neutral": "documentary",
+        }
+        return emotion_vfx_map.get(emotion.lower(), "cinematic")
+    
+    def _emotion_to_transition(self, emotion: str, prev_emotion: str = None) -> Tuple[str, float]:
+        """
+        Get transition based on emotion change using scene_emotion.
+        """
+        try:
+            from .scene_emotion import get_controller
+            controller = get_controller()
+            
+            if prev_emotion:
+                transition = controller.get_transition_for_emotion_change(prev_emotion, emotion)
+            else:
+                # Default transitions by emotion
+                emotion_transitions = {
+                    "calm": ("fade", 0.6),
+                    "exciting": ("whip_pan", 0.3),
+                    "dramatic": ("cross_zoom", 0.4),
+                    "tense": ("glitch", 0.25),
+                    "joyful": ("light_leak", 0.5),
+                    "sad": ("film_dissolve", 0.8),
+                    "mysterious": ("fade", 0.7),
+                    "neutral": ("fade", 0.5),
+                }
+                return emotion_transitions.get(emotion.lower(), ("fade", 0.5))
+            
+            # Get duration based on transition type
+            durations = {
+                "fade": 0.6, "film_dissolve": 0.8, "whip_pan": 0.3,
+                "cross_zoom": 0.4, "light_leak": 0.7, "glitch": 0.25, "flash": 0.2,
+            }
+            return transition, durations.get(transition, 0.5)
+            
+        except ImportError:
+            return ("fade", 0.5)
+    
+    def _emotion_to_color_grade(self, emotion: str) -> str:
+        """
+        Map emotion to color grade using scene_emotion color temperature.
+        """
+        try:
+            from .scene_emotion import get_controller
+            controller = get_controller()
+            color = controller.get_color_params(emotion)
+            temp = color.get("temperature", 5500)
+            
+            if temp >= 6000:
+                return "warm"
+            elif temp <= 5000:
+                return "cold"
+            else:
+                return "cinematic"
+        except ImportError:
+            return "cinematic"
+    
+    def _emotion_to_caption_style(self, emotion: str) -> Tuple[str, str]:
+        """
+        Get caption style and animation based on emotion.
+        """
+        emotion_caption_map = {
+            "calm": ("elegant", "fade_slide"),
+            "exciting": ("bold", "pop_bounce"),
+            "dramatic": ("bold", "scale_bounce"),
+            "tense": ("modern", "typewriter"),
+            "joyful": ("bold", "pop_bounce"),
+            "sad": ("elegant", "fade_slide"),
+            "mysterious": ("minimal", "typewriter"),
+            "neutral": ("modern", "fade_slide"),
+        }
+        return emotion_caption_map.get(emotion.lower(), ("modern", "fade_slide"))
+    
     def generate_visual_descriptor(self, 
                                     scene_text: str,
                                     emotion: str = "neutral",
@@ -474,16 +608,22 @@ class CreativeDirector:
                             scene_text: str,
                             emotion: str = "neutral",
                             tension: float = 0.5,
-                            pacing: str = "medium") -> SceneDirection:
+                            pacing: str = "medium",
+                            prev_emotion: str = None) -> SceneDirection:
         """
         Get complete creative direction for a scene.
+        
+        NOW FULLY INTEGRATED with scene_emotion.py!
+        All VFX, SFX, transitions, color, motion decisions
+        flow from the scene's emotion.
         
         Args:
             scene_idx: Scene index
             scene_text: Scene narration
             emotion: Scene emotion
-            tension: Tension level
+            tension: Tension level (legacy, emotion takes priority)
             pacing: Pacing style
+            prev_emotion: Previous scene's emotion (for transitions)
             
         Returns:
             SceneDirection with all creative decisions
@@ -493,41 +633,82 @@ class CreativeDirector:
         seed = hash(f"{scene_idx}_{scene_text[:20]}")
         random.seed(seed)
         
-        camera_motion = self._select_camera_motion(emotion, tension)
-        transition, trans_duration = self._select_transition(emotion, tension)
-        vfx = self._select_vfx_preset(tension)
-        voice = self._select_voice_style(tension)
+        # =====================================================================
+        # NEW: Get ALL parameters from scene_emotion
+        # =====================================================================
+        emotion_params = self._get_emotion_driven_params(emotion)
         
-        # Caption style based on preset
-        caption_styles = {
-            "cinematic": ("elegant", "fade_slide"),
-            "tiktok": ("bold", "pop_bounce"),
-            "corporate": ("modern", "fade_slide"),
-            "motivational": ("bold", "scale_bounce"),
+        # Camera motion from emotion-driven motion params
+        motion_params = emotion_params.get("motion", {})
+        motion_speed = motion_params.get("speed", 1.0)
+        camera_shake = motion_params.get("shake", 0.0)
+        
+        # Fast motion = more dynamic camera
+        if motion_speed > 1.2:
+            camera_motion = random.choice(["dolly-in", "pan-left", "whip_pan"])
+        elif motion_speed < 0.8:
+            camera_motion = random.choice(["slow-zoom-in", "static", "slow-zoom-out"])
+        else:
+            camera_motion = self._select_camera_motion(emotion, tension)
+        
+        # Transition from emotion (considers prev_emotion for smart transitions)
+        transition, trans_duration = self._emotion_to_transition(emotion, prev_emotion)
+        
+        # VFX preset from emotion
+        vfx_preset = self._emotion_to_vfx_preset(emotion)
+        
+        # Voice style from emotion + tension
+        voice_styles_by_emotion = {
+            "calm": "documentary",
+            "exciting": "energetic",
+            "dramatic": "cinematic",
+            "tense": "dramatic",
+            "joyful": "warm",
+            "sad": "calm",
+            "mysterious": "documentary",
+            "neutral": "calm",
         }
-        caption_style, caption_anim = caption_styles.get(
-            self.style_preset, ("modern", "fade_slide")
-        )
+        voice_style = voice_styles_by_emotion.get(emotion.lower(), self._select_voice_style(tension))
         
-        # Music intensity follows tension
-        music_intensity = 0.3 + (tension * 0.5)
+        # Caption style from emotion
+        caption_style, caption_anim = self._emotion_to_caption_style(emotion)
+        
+        # Music intensity from emotion
+        music_params = emotion_params.get("music", {})
+        music_intensity = music_params.get("intensity", 0.5)
+        
+        # Color grade from emotion
+        color_grade = self._emotion_to_color_grade(emotion)
+        
+        # Shot type based on emotion
+        shot_map = {
+            "calm": "wide", "exciting": "medium", "dramatic": "closeup",
+            "tense": "closeup", "joyful": "medium", "sad": "wide",
+            "mysterious": "wide", "neutral": "medium",
+        }
+        shot_type = shot_map.get(emotion.lower(), "medium")
         
         # Generate visual descriptor
         visual = self.generate_visual_descriptor(
             scene_text, emotion, tension, self.style_preset
         )
         
+        logger.debug(f"Scene {scene_idx} emotion={emotion} -> vfx={vfx_preset}, trans={transition}, color={color_grade}")
+        
         return SceneDirection(
             scene_idx=scene_idx,
             camera_motion=camera_motion,
             transition_type=transition,
             transition_duration=trans_duration,
-            vfx_preset=vfx,
+            vfx_preset=vfx_preset,
             caption_style=caption_style,
             caption_animation=caption_anim,
-            voice_style=voice,
+            voice_style=voice_style,
             music_intensity=music_intensity,
             visual_descriptor=visual,
+            emotion_tag=emotion,
+            color_grade=color_grade,
+            shot_type=shot_type,
         )
     
     def generate_creative_brief(self, 

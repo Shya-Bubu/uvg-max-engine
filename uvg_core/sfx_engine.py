@@ -44,34 +44,70 @@ SFX_TRIGGERS = {
     "transition:whip_pan": "whoosh_fast",
     "transition:zoom": "zoom_swoosh",
     "transition:flash": "flash_impact",
+    "transition:cross_zoom": "zoom_swoosh",
+    "transition:film_dissolve": "fade_soft",
+    "transition:glitch": "glitch_hit",
+    "transition:light_leak": "shimmer",
     
-    # Emotions
+    # Scene emotions (expanded to match scene_emotion.py)
+    "emotion:calm": None,  # No SFX for calm
+    "emotion:exciting": "energy_rise",
+    "emotion:dramatic": "epic_hit",
     "emotion:tense": "tension_riser",
-    "emotion:happy": "bright_ding",
+    "emotion:joyful": "bright_ding",
     "emotion:sad": "sad_tone",
+    "emotion:mysterious": "ambient_dark",
+    "emotion:neutral": None,
+    
+    # Legacy emotion mappings
+    "emotion:happy": "bright_ding",
     "emotion:epic": "epic_hit",
-    "emotion:peaceful": None,  # No SFX
+    "emotion:peaceful": None,
     
     # Scene events
     "scene:start": "subtle_whoosh",
     "scene:climax": "impact_deep",
     "scene:end": "fade_out_tone",
+    "scene:hook": "attention_grab",
     
     # Text events
     "text:appear": "pop_soft",
     "text:highlight": "click_soft",
+    "text:emphasize": "whoosh_short",
+}
+
+# Scene emotion to SFX intensity mapping
+SFX_EMOTION_INTENSITY = {
+    "calm": {"intensity": 0.3, "volume_db": -18, "types": ["ambient", "subtle"]},
+    "exciting": {"intensity": 0.8, "volume_db": -10, "types": ["whoosh", "impact", "energy"]},
+    "dramatic": {"intensity": 0.9, "volume_db": -8, "types": ["epic", "impact_deep", "tension"]},
+    "tense": {"intensity": 0.7, "volume_db": -12, "types": ["tension_riser", "suspense"]},
+    "joyful": {"intensity": 0.6, "volume_db": -14, "types": ["bright", "pop", "sparkle"]},
+    "sad": {"intensity": 0.3, "volume_db": -16, "types": ["subtle", "ambient"]},
+    "mysterious": {"intensity": 0.5, "volume_db": -14, "types": ["ambient_dark", "whisper"]},
+    "neutral": {"intensity": 0.4, "volume_db": -15, "types": ["subtle", "transition"]},
 }
 
 # Local SFX library (embedded simple sounds)
 LOCAL_SFX = {
     "whoosh_fast": "whoosh_fast.wav",
     "whoosh_slow": "whoosh_slow.wav",
+    "whoosh_short": "whoosh_short.wav",
     "impact_deep": "impact_deep.wav",
     "tension_riser": "tension_riser.wav",
     "bright_ding": "bright_ding.wav",
     "pop_soft": "pop_soft.wav",
     "fade_soft": "fade_soft.wav",
     "click_soft": "click_soft.wav",
+    "epic_hit": "epic_hit.wav",
+    "energy_rise": "energy_rise.wav",
+    "glitch_hit": "glitch_hit.wav",
+    "shimmer": "shimmer.wav",
+    "ambient_dark": "ambient_dark.wav",
+    "sad_tone": "sad_tone.wav",
+    "attention_grab": "attention_grab.wav",
+    "zoom_swoosh": "zoom_swoosh.wav",
+    "flash_impact": "flash_impact.wav",
 }
 
 
@@ -104,7 +140,7 @@ class SFXEngine:
         """
         self.sfx_dir = Path(sfx_dir) if sfx_dir else Path("sfx")
         self.cache_dir = Path(cache_dir) if cache_dir else Path("sfx_cache")
-        self.freesound_key = freesound_key or os.getenv("FREESOUND_API_KEY", "")
+        self.freesound_key = freesound_key or os.getenv("FREESOUND_KEY", "") or os.getenv("FREESOUND_API_KEY", "")
         
         self.sfx_dir.mkdir(parents=True, exist_ok=True)
         self.cache_dir.mkdir(parents=True, exist_ok=True)

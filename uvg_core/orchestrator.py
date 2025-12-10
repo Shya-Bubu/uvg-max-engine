@@ -487,7 +487,53 @@ class Orchestrator:
         
         # Final assembly if all scenes complete
         if self.state.completed_scenes == len(scenes):
-            results["output_path"] = str(self.output_dir / f"{project_id}_final.mp4")
+            final_path = str(self.output_dir / f"{project_id}_final.mp4")
+            results["output_path"] = final_path
+            
+            # Get video_meta for settings
+            video_meta = script.get("video_meta", {})
+            
+            # Generate thumbnail if enabled
+            thumbnail_enabled = video_meta.get("thumbnail_enabled", True)
+            if thumbnail_enabled:
+                try:
+                    from uvg_core.thumbnail_generator import generate_thumbnail
+                    
+                    thumbnail_concept = script.get("thumbnail_concept", {})
+                    title = thumbnail_concept.get("headline", video_meta.get("title", ""))
+                    style = video_meta.get("narrative_style", "tiktok")
+                    
+                    # Map narrative style to thumbnail style
+                    style_map = {
+                        "cinematic": "cinematic",
+                        "motivational": "motivational",
+                        "documentary": "cinematic",
+                        "tiktok": "tiktok",
+                        "emotional": "motivational",
+                    }
+                    thumb_style = style_map.get(style, "tiktok")
+                    
+                    thumb_result = generate_thumbnail(final_path, title, thumb_style)
+                    if thumb_result and hasattr(thumb_result, 'output_path'):
+                        results["thumbnail_path"] = thumb_result.output_path
+                        logger.info(f"Thumbnail generated: {thumb_result.output_path}")
+                except Exception as e:
+                    logger.warning(f"Thumbnail generation failed: {e}")
+            
+            # Generate attribution file
+            try:
+                from uvg_core.license_metadata import get_license_tracker
+                tracker = get_license_tracker()
+                if tracker.clip_licenses or tracker.music_license:
+                    attribution_path = str(self.output_dir / f"{project_id}_attribution.txt")
+                    tracker.generate_attribution_file(attribution_path)
+                    results["attribution_path"] = attribution_path
+                    
+                    # Also save JSON version
+                    license_json = str(self.output_dir / f"{project_id}_licenses.json")
+                    tracker.save_json(license_json)
+            except Exception as e:
+                logger.debug(f"Attribution generation skipped: {e}")
         
         return results
 

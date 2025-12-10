@@ -25,13 +25,27 @@ class SceneData:
     index: int
     text: str
     duration: float = 4.0
-    emotion: str = "neutral"
+    emotion: str = "neutral"  # Legacy field, use scene_emotion
     visual_query: str = ""
     camera_motion: str = "slow-zoom-in"
     transition: str = "fade"
     
+    # NEW: Voice preset (documentary, motivational, cinematic, etc.)
+    voice_style: str = "documentary"
+    
+    # NEW: Scene emotion for VFX/SFX/music (calm, exciting, dramatic, etc.)
+    scene_emotion: str = "neutral"
+    
+    # NEW: Speed ramp effect {"in": 1.0, "out": 1.2}
+    speed_ramp: Optional[Dict[str, float]] = None
+    
+    def __post_init__(self):
+        # Sync legacy emotion to scene_emotion if not set
+        if self.scene_emotion == "neutral" and self.emotion != "neutral":
+            self.scene_emotion = self.emotion
+    
     def to_dict(self) -> Dict[str, Any]:
-        return {
+        result = {
             "index": self.index,
             "text": self.text,
             "duration": self.duration,
@@ -39,7 +53,12 @@ class SceneData:
             "visual_query": self.visual_query,
             "camera_motion": self.camera_motion,
             "transition": self.transition,
+            "voice_style": self.voice_style,
+            "scene_emotion": self.scene_emotion,
         }
+        if self.speed_ramp:
+            result["speed_ramp"] = self.speed_ramp
+        return result
 
 
 @dataclass
@@ -51,18 +70,45 @@ class ScriptData:
     total_duration: float = 0.0
     target_platform: str = "youtube"
     
+    # Schema version for backward compatibility
+    version: str = "2.0"
+    
+    # Deterministic mode for reproducibility
+    # When True: strict reproducibility (no randomness in clip selection)
+    # When False: allow randomness for variety
+    deterministic_mode: bool = False
+    random_seed: Optional[int] = None  # Used when deterministic_mode=True
+    
+    # Global voice style (can be overridden per-scene)
+    voice_style: str = "documentary"
+    
+    # Language/locale for Whisper and captions
+    language: str = "en-US"
+    
+    # Music configuration
+    music: Optional[Dict[str, Any]] = None  # {path, search_query, sync_mode}
+    
     def __post_init__(self):
         if self.total_duration == 0 and self.scenes:
             self.total_duration = sum(s.duration for s in self.scenes)
     
     def to_dict(self) -> Dict[str, Any]:
-        return {
+        result = {
+            "version": self.version,
             "title": self.title,
             "scenes": [s.to_dict() for s in self.scenes],
             "style": self.style,
             "total_duration": self.total_duration,
             "target_platform": self.target_platform,
+            "voice_style": self.voice_style,
+            "language": self.language,
+            "deterministic_mode": self.deterministic_mode,
         }
+        if self.random_seed is not None:
+            result["random_seed"] = self.random_seed
+        if self.music:
+            result["music"] = self.music
+        return result
 
 
 @dataclass
@@ -132,6 +178,15 @@ class ScriptLoader:
         with open(path, 'r', encoding='utf-8') as f:
             data = json.load(f)
         
+        # Validate against schema v2.x
+        try:
+            from uvg_core.schema_v2 import validate_schema
+            errors = validate_schema(data)
+            if errors:
+                logger.warning(f"Schema validation warnings: {errors}")
+        except ImportError:
+            pass
+        
         return self._parse_dict(data)
     
     def load_from_dict(self, data: Dict[str, Any]) -> ScriptData:
@@ -144,6 +199,15 @@ class ScriptLoader:
         Returns:
             ScriptData object
         """
+        # Validate against schema v2.x
+        try:
+            from uvg_core.schema_v2 import validate_schema
+            errors = validate_schema(data)
+            if errors:
+                logger.warning(f"Schema validation warnings: {errors}")
+        except ImportError:
+            pass
+        
         return self._parse_dict(data)
     
     def load_from_model_output(self, text: str) -> ScriptData:
@@ -181,6 +245,9 @@ class ScriptLoader:
         """Parse script from dictionary."""
         scenes = []
         
+        # Get global voice style (can be overridden per-scene)
+        global_voice_style = data.get("voice_style", "documentary")
+        
         for i, scene_data in enumerate(data.get("scenes", [])):
             scenes.append(SceneData(
                 index=scene_data.get("index", i),
@@ -190,6 +257,10 @@ class ScriptLoader:
                 visual_query=scene_data.get("visual_query", scene_data.get("visual", "")),
                 camera_motion=scene_data.get("camera_motion", "slow-zoom-in"),
                 transition=scene_data.get("transition", "fade"),
+                # NEW fields
+                voice_style=scene_data.get("voice_style", global_voice_style),
+                scene_emotion=scene_data.get("scene_emotion", scene_data.get("emotion", "neutral")),
+                speed_ramp=scene_data.get("speed_ramp"),
             ))
         
         return ScriptData(
@@ -197,6 +268,8 @@ class ScriptLoader:
             scenes=scenes,
             style=data.get("style", "cinematic"),
             target_platform=data.get("target_platform", "youtube"),
+            voice_style=global_voice_style,
+            music=data.get("music"),
         )
     
     def _parse_plain_text(self, text: str) -> ScriptData:

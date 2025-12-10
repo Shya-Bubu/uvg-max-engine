@@ -210,10 +210,17 @@ class UVGConfig:
     # =========================================================================
     # AI MODEL SELECTION
     # =========================================================================
+    # NOTE: Fish-Speech S1 is the SOLE TTS provider (no Azure/ElevenLabs)
     GEMINI_SCRIPT_MODEL: str = field(default_factory=lambda: os.getenv("UVG_GEMINI_SCRIPT_MODEL", "gemini-2.5-flash"))
     GEMINI_CREATIVE_MODEL: str = field(default_factory=lambda: os.getenv("UVG_GEMINI_CREATIVE_MODEL", "gemini-2.5-flash"))
-    GEMINI_TTS_MODEL: str = field(default_factory=lambda: os.getenv("UVG_GEMINI_TTS_MODEL", "gemini-2.5-flash"))
-    TTS_PROVIDER: str = field(default_factory=lambda: os.getenv("UVG_TTS_PROVIDER", "mock"))  # mock, gemini, azure
+    
+    # Fish-Speech S1 Settings (SOLE TTS ENGINE)
+    TTS_PROVIDER: str = field(default_factory=lambda: os.getenv("UVG_TTS_PROVIDER", "fish_speech"))
+    FISH_SPEECH_MODEL: str = field(default_factory=lambda: os.getenv("FISH_SPEECH_MODEL", "fish-speech-s1"))
+    FISH_SPEECH_REFERENCE: str = field(default_factory=lambda: os.getenv("FISH_SPEECH_REFERENCE", ""))  # Voice cloning
+    
+    # Whisper for auto-timestamps (users never enter manually)
+    WHISPER_MODEL: str = field(default_factory=lambda: os.getenv("WHISPER_MODEL", "base"))
     
     # =========================================================================
     # DEBUG & MOCK SETTINGS
@@ -246,6 +253,11 @@ class UVGConfig:
     default_transition_style: str = "cinematic"
     default_vfx_style: str = "emotional_warm"
     default_music_mood: str = "inspirational"
+    
+    # NEW: Voice and Audio Defaults
+    default_voice_style: str = "documentary"  # Fish-Speech preset
+    default_scene_emotion: str = "neutral"
+    default_music_sync: str = "ducking"  # ducking | emotional | beat_reactive
     
     # =========================================================================
     # CLEANUP SETTINGS

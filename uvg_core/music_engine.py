@@ -374,3 +374,381 @@ def create_loop(audio_path: str, duration: float) -> str:
     """Create seamless loop of music."""
     engine = MusicEngine()
     return engine.create_seamless_loop(audio_path, duration)
+
+
+# =============================================================================
+# MUSIC SYNC MODES
+# =============================================================================
+
+from enum import Enum
+
+
+class MusicSyncMode(str, Enum):
+    """Music synchronization modes."""
+    DUCKING = "ducking"           # Smooth fade under voice (default)
+    EMOTIONAL = "emotional"       # Volume based on scene_emotion
+    BEAT_REACTIVE = "beat_reactive"  # Intelligent pumping for TikTok
+
+
+@dataclass
+class MusicSyncResult:
+    """Result of music sync operation."""
+    success: bool
+    output_path: str
+    sync_mode: str
+    error: str = ""
+
+
+class MusicSyncEngine:
+    """
+    Music synchronization engine with 3 modes.
+    
+    Sync Modes:
+    - DUCKING: Smooth fade under voice (default, professional)
+    - EMOTIONAL: Volume changes based on scene_emotion
+    - BEAT_REACTIVE: Beat-aligned pumping for TikTok/short-form
+    
+    This makes audio feel "expensive".
+    """
+    
+    def __init__(self, output_dir: Path = None):
+        """
+        Initialize music sync engine.
+        
+        Args:
+            output_dir: Output directory for processed audio
+        """
+        self.output_dir = Path(output_dir) if output_dir else Path("uvg_output/music")
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+    
+    def apply_sync(
+        self,
+        music_path: str,
+        voice_path: str,
+        scenes: List[Dict],
+        sync_mode: MusicSyncMode = MusicSyncMode.DUCKING,
+        output_path: str = None
+    ) -> MusicSyncResult:
+        """
+        Apply music sync mode to audio.
+        
+        Args:
+            music_path: Background music path
+            voice_path: Voice/narration path
+            scenes: Scene list with emotion data
+            sync_mode: Sync mode to apply
+            output_path: Output path (auto-generated if None)
+            
+        Returns:
+            MusicSyncResult
+        """
+        if output_path is None:
+            output_path = str(self.output_dir / f"synced_{sync_mode.value}.wav")
+        
+        if sync_mode == MusicSyncMode.DUCKING:
+            return self._apply_ducking(music_path, voice_path, output_path)
+        elif sync_mode == MusicSyncMode.EMOTIONAL:
+            return self._apply_emotional(music_path, voice_path, scenes, output_path)
+        elif sync_mode == MusicSyncMode.BEAT_REACTIVE:
+            return self._apply_beat_reactive(music_path, voice_path, output_path)
+        else:
+            return self._apply_ducking(music_path, voice_path, output_path)
+    
+    def _apply_ducking(
+        self,
+        music_path: str,
+        voice_path: str,
+        output_path: str
+    ) -> MusicSyncResult:
+        """
+        Apply sidechain ducking - lower music when voice is present.
+        
+        Professional broadcast standard.
+        """
+        try:
+            # Use FFmpeg sidechaincompress for ducking
+            # Duck music by -12dB when voice exceeds threshold
+            cmd = [
+                "ffmpeg", "-y",
+                "-i", voice_path,
+                "-i", music_path,
+                "-filter_complex",
+                "[1:a]volume=0.15[music];"
+                "[music][0:a]sidechaincompress=threshold=0.02:"
+                "ratio=4:attack=50:release=500:level_sc=1[ducked];"
+                "[0:a][ducked]amix=inputs=2:duration=first:normalize=0[out]",
+                "-map", "[out]",
+                "-ar", "44100",
+                "-c:a", "pcm_s16le",
+                output_path
+            ]
+            
+            result = subprocess.run(cmd, capture_output=True, timeout=120)
+            
+            if result.returncode == 0 and Path(output_path).exists():
+                logger.info("Applied ducking sync mode")
+                return MusicSyncResult(
+                    success=True,
+                    output_path=output_path,
+                    sync_mode="ducking"
+                )
+            else:
+                # Fallback: simple volume mix
+                return self._simple_mix(music_path, voice_path, output_path, 0.15)
+                
+        except Exception as e:
+            logger.error(f"Ducking failed: {e}")
+            return MusicSyncResult(
+                success=False,
+                output_path="",
+                sync_mode="ducking",
+                error=str(e)
+            )
+    
+    def _apply_emotional(
+        self,
+        music_path: str,
+        voice_path: str,
+        scenes: List[Dict],
+        output_path: str
+    ) -> MusicSyncResult:
+        """
+        Apply emotional sync - volume based on scene_emotion.
+        
+        Dramatic scenes = louder music, calm scenes = quieter music.
+        """
+        try:
+            # Import scene emotion controller
+            try:
+                from .scene_emotion import get_music_for_emotion
+            except ImportError:
+                from scene_emotion import get_music_for_emotion
+            
+            # Build volume keyframes based on scene emotions
+            keyframes = []
+            current_time = 0.0
+            
+            for scene in scenes:
+                duration = scene.get("duration", 4.0)
+                emotion = scene.get("scene_emotion", scene.get("emotion", "neutral"))
+                
+                music_params = get_music_for_emotion(emotion)
+                volume = music_params.get("volume_multiplier", 0.5) * 0.3  # Base 30%
+                
+                keyframes.append((current_time, volume))
+                keyframes.append((current_time + duration - 0.1, volume))
+                current_time += duration
+            
+            # Build FFmpeg volume expression
+            # volume='if(lt(t,2),0.1,if(lt(t,4),0.3,0.15))'
+            if len(keyframes) >= 2:
+                volume_parts = []
+                for i in range(0, len(keyframes) - 1, 2):
+                    t1, v1 = keyframes[i]
+                    t2, v2 = keyframes[i + 1] if i + 1 < len(keyframes) else (t1 + 4, v1)
+                    volume_parts.append(f"between(t,{t1:.1f},{t2:.1f})*{v1:.2f}")
+                
+                volume_expr = "+".join(volume_parts) if volume_parts else "0.15"
+            else:
+                volume_expr = "0.15"
+            
+            cmd = [
+                "ffmpeg", "-y",
+                "-i", voice_path,
+                "-i", music_path,
+                "-filter_complex",
+                f"[1:a]volume='{volume_expr}'[music];"
+                f"[0:a][music]amix=inputs=2:duration=first:normalize=0[out]",
+                "-map", "[out]",
+                "-ar", "44100",
+                "-c:a", "pcm_s16le",
+                output_path
+            ]
+            
+            result = subprocess.run(cmd, capture_output=True, timeout=120)
+            
+            if result.returncode == 0 and Path(output_path).exists():
+                logger.info("Applied emotional sync mode")
+                return MusicSyncResult(
+                    success=True,
+                    output_path=output_path,
+                    sync_mode="emotional"
+                )
+            else:
+                # Fallback to ducking
+                return self._apply_ducking(music_path, voice_path, output_path)
+                
+        except Exception as e:
+            logger.warning(f"Emotional sync failed: {e}, falling back to ducking")
+            return self._apply_ducking(music_path, voice_path, output_path)
+    
+    def _apply_beat_reactive(
+        self,
+        music_path: str,
+        voice_path: str,
+        output_path: str
+    ) -> MusicSyncResult:
+        """
+        Apply beat-reactive sync - intelligent pumping for TikTok.
+        
+        Music pulses with beat, creating energetic feel.
+        """
+        try:
+            # Detect beats first
+            music_engine = MusicEngine()
+            beat_info = music_engine.detect_beats(music_path)
+            
+            if not beat_info.beat_times:
+                # Fall back to ducking if no beats detected
+                return self._apply_ducking(music_path, voice_path, output_path)
+            
+            # Create pumping effect with compressor
+            # Attack on beats, release between beats
+            beat_interval = 60.0 / beat_info.bpm if beat_info.bpm > 0 else 0.5
+            attack_ms = max(10, int(beat_interval * 100))  # 10% of beat
+            release_ms = max(50, int(beat_interval * 800))  # 80% of beat
+            
+            cmd = [
+                "ffmpeg", "-y",
+                "-i", voice_path,
+                "-i", music_path,
+                "-filter_complex",
+                f"[1:a]volume=0.2,acompressor=threshold=0.1:ratio=3:"
+                f"attack={attack_ms}:release={release_ms}:makeup=2[music];"
+                f"[music][0:a]sidechaincompress=threshold=0.02:"
+                f"ratio=6:attack=20:release={release_ms}[ducked];"
+                f"[0:a][ducked]amix=inputs=2:duration=first:normalize=0[out]",
+                "-map", "[out]",
+                "-ar", "44100",
+                "-c:a", "pcm_s16le",
+                output_path
+            ]
+            
+            result = subprocess.run(cmd, capture_output=True, timeout=120)
+            
+            if result.returncode == 0 and Path(output_path).exists():
+                logger.info(f"Applied beat-reactive sync (BPM: {beat_info.bpm})")
+                return MusicSyncResult(
+                    success=True,
+                    output_path=output_path,
+                    sync_mode="beat_reactive"
+                )
+            else:
+                return self._apply_ducking(music_path, voice_path, output_path)
+                
+        except Exception as e:
+            logger.warning(f"Beat-reactive sync failed: {e}, using ducking")
+            return self._apply_ducking(music_path, voice_path, output_path)
+    
+    def _simple_mix(
+        self,
+        music_path: str,
+        voice_path: str,
+        output_path: str,
+        music_volume: float = 0.15
+    ) -> MusicSyncResult:
+        """Simple volume mix fallback."""
+        try:
+            cmd = [
+                "ffmpeg", "-y",
+                "-i", voice_path,
+                "-i", music_path,
+                "-filter_complex",
+                f"[1:a]volume={music_volume}[music];"
+                f"[0:a][music]amix=inputs=2:duration=first:normalize=0[out]",
+                "-map", "[out]",
+                "-ar", "44100",
+                "-c:a", "pcm_s16le",
+                output_path
+            ]
+            
+            subprocess.run(cmd, capture_output=True, timeout=120)
+            
+            if Path(output_path).exists():
+                return MusicSyncResult(
+                    success=True,
+                    output_path=output_path,
+                    sync_mode="simple_mix"
+                )
+        except Exception:
+            pass
+        
+        return MusicSyncResult(
+            success=False,
+            output_path="",
+            sync_mode="",
+            error="Simple mix failed"
+        )
+
+
+# =============================================================================
+# MUSIC SOURCE SUPPORT (path + search_query)
+# =============================================================================
+
+def get_music(
+    path: str = None,
+    search_query: str = None,
+    mood: str = None,
+    duration: float = 60.0
+) -> str:
+    """
+    Get music from local path or search query.
+    
+    Supports both:
+    - music.path for custom files
+    - music.search_query for Pixabay/Freesound auto-search
+    
+    Args:
+        path: Local file path
+        search_query: Search query for API
+        mood: Mood for search (if no query)
+        duration: Target duration
+        
+    Returns:
+        Path to music file
+    """
+    # Priority 1: Local path
+    if path and Path(path).exists():
+        logger.info(f"Using local music: {path}")
+        return path
+    
+    # Priority 2: Search query
+    engine = MusicEngine()
+    
+    if search_query:
+        tracks = engine.search_by_mood(search_query, max_results=3)
+        if tracks and tracks[0].downloaded_path:
+            return tracks[0].downloaded_path
+    
+    # Priority 3: Mood-based search
+    if mood:
+        tracks = engine.search_by_mood(mood, max_results=3)
+        if tracks and tracks[0].downloaded_path:
+            return tracks[0].downloaded_path
+    
+    logger.warning("No music found")
+    return ""
+
+
+def apply_music_sync(
+    music_path: str,
+    voice_path: str,
+    scenes: List[Dict] = None,
+    sync_mode: str = "ducking"
+) -> str:
+    """
+    Apply music sync mode and return output path.
+    
+    Args:
+        music_path: Music file path
+        voice_path: Voice file path
+        scenes: Scene list for emotional sync
+        sync_mode: ducking | emotional | beat_reactive
+        
+    Returns:
+        Path to synced audio
+    """
+    engine = MusicSyncEngine()
+    mode = MusicSyncMode(sync_mode) if sync_mode in [m.value for m in MusicSyncMode] else MusicSyncMode.DUCKING
+    result = engine.apply_sync(music_path, voice_path, scenes or [], mode)
+    return result.output_path if result.success else ""

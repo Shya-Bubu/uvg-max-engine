@@ -331,22 +331,38 @@ class MediaSearchEngine:
         self.download_log: List[Dict] = []
     
     def _init_adapters(self) -> None:
-        """Initialize provider adapters."""
+        """Initialize provider adapters from config or environment."""
         if self.local_test_mode:
             self.adapters.append(LocalAdapter(
                 self.config.get("assets_dir", "./assets")
             ))
             return
         
-        # Add real providers
-        if self.config.get("PEXELS_KEY"):
-            self.adapters.append(PexelsAdapter(self.config["PEXELS_KEY"]))
+        # Load from dotenv if available
+        try:
+            from dotenv import load_dotenv
+            load_dotenv()
+        except ImportError:
+            pass
         
-        if self.config.get("PIXABAY_KEY"):
-            self.adapters.append(PixabayAdapter(self.config["PIXABAY_KEY"]))
+        # Get keys from config or environment
+        pexels_key = self.config.get("PEXELS_KEY") or os.getenv("PEXELS_KEY", "")
+        pixabay_key = self.config.get("PIXABAY_KEY") or os.getenv("PIXABAY_KEY", "")
+        unsplash_key = self.config.get("UNSPLASH_KEY") or os.getenv("UNSPLASH_ACCESS_KEY", "")
+        coverr_key = self.config.get("COVERR_KEY") or os.getenv("COVERR_KEY", "")
         
-        if self.config.get("UNSPLASH_KEY"):
-            self.adapters.append(UnsplashAdapter(self.config["UNSPLASH_KEY"]))
+        # Add providers in priority order
+        if pexels_key:
+            self.adapters.append(PexelsAdapter(pexels_key))
+            logger.info("Pexels adapter initialized")
+        
+        if pixabay_key:
+            self.adapters.append(PixabayAdapter(pixabay_key))
+            logger.info("Pixabay adapter initialized")
+        
+        if unsplash_key:
+            self.adapters.append(UnsplashAdapter(unsplash_key))
+            logger.info("Unsplash adapter initialized")
         
         # Always add local as fallback
         self.adapters.append(LocalAdapter(
