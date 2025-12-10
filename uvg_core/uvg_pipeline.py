@@ -192,11 +192,9 @@ class UVGPipeline:
         return ScriptLoader()
     
     def _load_tts_engine(self):
-        from .tts_engine import TTSEngine
-        return TTSEngine(
-            output_dir=self.config.output_dir / "audio",
-            mock_mode=self.config.mock_mode
-        )
+        # Use EdgeTTSAdapter (works on Colab without heavy dependencies)
+        from .edge_tts_adapter import EdgeTTSAdapter
+        return EdgeTTSAdapter(output_dir=self.config.output_dir / "audio")
     
     def _load_whisper(self):
         from .whisper_timing import WhisperTimingExtractor
@@ -413,9 +411,15 @@ class UVGPipeline:
             tts_results = []
             
             for i, scene in enumerate(loaded_script.scenes):
-                audio_path = str(self.config.output_dir / "audio" / f"scene_{i}.wav")
-                emotion = scene_directions[i].emotion_tag if scene_directions else "neutral"
-                result = tts.synthesize(scene.text, emotion, audio_path)
+                # Get voice style from scene or scene direction
+                voice_style = getattr(scene, 'voice_style', None) or \
+                              (scene_directions[i].emotion_tag if scene_directions else "default")
+                
+                result = tts.synthesize(
+                    text=scene.text,
+                    output_name=f"scene_{i:03d}",
+                    voice_style=voice_style
+                )
                 tts_results.append(result)
             
             timing["tts"] = time.time() - step_start
@@ -596,6 +600,48 @@ class UVGPipeline:
                     warnings.append(f"Assembly warning: {assemble_result.error}")
                 else:
                     output_path = assemble_result.output_path
+                    
+                    # Mix TTS audio into video
+                    audio_files = [r.audio_path for r in tts_results if r.success and r.audio_path]
+                    if audio_files:
+                        try:
+                            # Concatenate all TTS audio files
+                            audio_concat_path = self.config.output_dir / "audio" / "concat_audio.mp3"
+                            audio_concat_path.parent.mkdir(parents=True, exist_ok=True)
+                            
+                            # Create audio concat list
+                            audio_list_path = self.config.output_dir / "audio" / "audio_list.txt"
+                            with open(audio_list_path, 'w') as f:
+                                for audio_path in audio_files:
+                                    f.write(f"file '{audio_path}'\\n")
+                            
+                            # Concat audio files
+                            concat_cmd = [
+                                "ffmpeg", "-y", "-f", "concat", "-safe", "0",
+                                "-i", str(audio_list_path),
+                                "-c", "copy", str(audio_concat_path)
+                            ]
+                            subprocess.run(concat_cmd, capture_output=True, timeout=60)
+                            
+                            # Mix audio into video
+                            if audio_concat_path.exists():
+                                output_with_audio = str(self.config.output_dir / "final" / f"{output_name}_audio.mp4")
+                                mix_cmd = [
+                                    "ffmpeg", "-y",
+                                    "-i", output_path,
+                                    "-i", str(audio_concat_path),
+                                    "-c:v", "copy",
+                                    "-c:a", "aac", "-b:a", "192k",
+                                    "-map", "0:v:0", "-map", "1:a:0",
+                                    "-shortest",
+                                    output_with_audio
+                                ]
+                                result = subprocess.run(mix_cmd, capture_output=True, timeout=120)
+                                if result.returncode == 0:
+                                    output_path = output_with_audio
+                                    logger.info("Audio mixed into final video successfully")
+                        except Exception as e:
+                            logger.warning(f"Audio mixing failed: {e}")
             else:
                 # Create placeholder if no clips
                 self._create_placeholder_video(output_path, loaded_script.total_duration)
