@@ -213,6 +213,14 @@ def generate_video(script_json: str, resolution_preset: str, include_captions: b
     """Generate video from script JSON with progress tracking."""
     start_time = time.time()
     
+    # Safe progress function that handles None
+    def safe_progress(value, desc=""):
+        if progress is not None:
+            try:
+                progress(value, desc=desc)
+            except Exception:
+                pass  # Ignore progress errors
+    
     # Parse resolution preset
     RESOLUTION_MAP = {
         "TikTok Portrait (1080×1920)": {"width": 1080, "height": 1920, "orientation": "portrait"},
@@ -249,7 +257,7 @@ def generate_video(script_json: str, resolution_preset: str, include_captions: b
         # =====================================================================
         # STAGE 1: Validation (5%)
         # =====================================================================
-        progress(0.05, desc="Validating script...")
+        safe_progress(0.05, desc="Validating script...")
         time.sleep(0.5)  # Simulate
         
         elapsed = time.time() - start_time
@@ -259,10 +267,10 @@ def generate_video(script_json: str, resolution_preset: str, include_captions: b
         # =====================================================================
         # STAGE 2: TTS (20%)
         # =====================================================================
-        progress(0.10, desc="Generating voice with Fish-Speech S1...")
+        safe_progress(0.10, desc="Generating voice with Fish-Speech S1...")
         
         for i, scene in enumerate(scenes):
-            progress(0.10 + (0.10 * i / num_scenes), 
+            safe_progress(0.10 + (0.10 * i / num_scenes), 
                     desc=f"TTS: Scene {i+1}/{num_scenes}")
             time.sleep(0.3)  # Simulate
         
@@ -275,7 +283,7 @@ def generate_video(script_json: str, resolution_preset: str, include_captions: b
         # =====================================================================
         # STAGE 3: Whisper (30%)
         # =====================================================================
-        progress(0.25, desc="Extracting word timestamps with Whisper...")
+        safe_progress(0.25, desc="Extracting word timestamps with Whisper...")
         time.sleep(1)  # Simulate
         
         manager.cleanup_stage("whisper")
@@ -288,7 +296,7 @@ def generate_video(script_json: str, resolution_preset: str, include_captions: b
         # STAGE 4: Media Search + CLIP (50%)
         # =====================================================================
         for i, scene in enumerate(scenes):
-            progress(0.30 + (0.20 * i / num_scenes),
+            safe_progress(0.30 + (0.20 * i / num_scenes),
                     desc=f"Searching clips: Scene {i+1}/{num_scenes}")
             time.sleep(0.5)  # Simulate
         
@@ -301,10 +309,10 @@ def generate_video(script_json: str, resolution_preset: str, include_captions: b
         # =====================================================================
         # STAGE 5: VFX + Assembly (80%)
         # =====================================================================
-        progress(0.55, desc="Applying VFX and assembling...")
+        safe_progress(0.55, desc="Applying VFX and assembling...")
         
         for i in range(num_scenes):
-            progress(0.55 + (0.25 * i / num_scenes),
+            safe_progress(0.55 + (0.25 * i / num_scenes),
                     desc=f"Assembling: Scene {i+1}/{num_scenes}")
             time.sleep(0.3)  # Simulate
         
@@ -315,10 +323,10 @@ def generate_video(script_json: str, resolution_preset: str, include_captions: b
         # =====================================================================
         # STAGE 6: Export (100%)
         # =====================================================================
-        progress(0.85, desc="Final export...")
+        safe_progress(0.85, desc="Final export...")
         time.sleep(1)  # Simulate
         
-        progress(1.0, desc="Complete!")
+        safe_progress(1.0, desc="Complete!")
         
         total_elapsed = time.time() - start_time
         
