@@ -569,28 +569,33 @@ class UVGPipeline:
             ffmpeg = self._get_module("ffmpeg")
             
             # Build scene list for assembly
+            from .ffmpeg_assembler import AssemblyScene
             scenes_for_assembly = []
             for i, clip_path in enumerate(scene_clips):
                 if clip_path:
-                    scenes_for_assembly.append({
-                        "video_path": clip_path,
-                        "audio_path": tts_results[i].audio_path if tts_results[i].success else None,
-                        "duration": tts_results[i].duration_ms / 1000 if tts_results[i].success else 5.0
-                    })
+                    scenes_for_assembly.append(AssemblyScene(
+                        index=i,
+                        video_path=clip_path,
+                        audio_path=tts_results[i].audio_path if tts_results[i].success else "",
+                        duration=tts_results[i].duration_ms / 1000 if tts_results[i].success else 5.0,
+                        transition_type=scene_directions[i].transition_type if scene_directions else "fade",
+                        transition_duration=scene_directions[i].transition_duration if scene_directions else 0.5
+                    ))
             
             output_path = str(self.config.output_dir / "final" / f"{output_name}.mp4")
             Path(output_path).parent.mkdir(parents=True, exist_ok=True)
             
             if scenes_for_assembly:
-                assemble_result = ffmpeg.assemble_timeline(
+                # Use assemble_with_transitions (or assemble_simple for speed)
+                assemble_result = ffmpeg.assemble_with_transitions(
                     scenes_for_assembly,
-                    output_path=output_path,
-                    background_music=music_path,
-                    subtitle_path=caption_path
+                    output_name=f"{output_name}.mp4"
                 )
                 
                 if not assemble_result.success:
                     warnings.append(f"Assembly warning: {assemble_result.error}")
+                else:
+                    output_path = assemble_result.output_path
             else:
                 # Create placeholder if no clips
                 self._create_placeholder_video(output_path, loaded_script.total_duration)
