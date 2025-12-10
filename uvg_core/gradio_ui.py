@@ -466,12 +466,22 @@ def create_ui():
     return app
 
 
-def launch(share: bool = True, port: int = 7860):
+def launch(share: bool = True, server_port: int = 7860):
     """Launch the Gradio UI."""
+    # Kill any existing Gradio process on the port (Colab-friendly)
+    import subprocess
+    import sys
+    try:
+        if 'google.colab' in sys.modules:
+            subprocess.run(['fuser', '-k', f'{server_port}/tcp'], 
+                          capture_output=True, timeout=5)
+    except Exception:
+        pass  # Ignore errors
+    
     app = create_ui()
     if app:
         print("🚀 Launching UVG MAX UI...")
-        app.launch(share=share, server_port=port)
+        app.launch(share=share, server_port=server_port)
 
 
 # =============================================================================
