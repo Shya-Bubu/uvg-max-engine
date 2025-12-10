@@ -266,8 +266,8 @@ class UVGPipeline:
         from .ffmpeg_assembler import FFmpegAssembler
         return FFmpegAssembler(
             output_dir=self.config.output_dir / "assembled",
-            width=self.config.width,
-            height=self.config.height,
+            target_width=self.config.width,
+            target_height=self.config.height,
             fps=self.config.fps
         )
     
