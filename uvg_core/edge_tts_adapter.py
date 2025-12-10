@@ -2,14 +2,14 @@
 UVG MAX Edge-TTS Adapter
 
 Uses Microsoft Edge TTS for high-quality, free text-to-speech.
+Compatible with Jupyter/Colab event loops.
 """
 
-import asyncio
 import logging
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional, Dict, List
+from typing import Optional, Dict, List, Any
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +22,7 @@ class TTSResult:
     duration_ms: int
     text: str
     error: str = ""
+    word_timings: List[Dict[str, Any]] = field(default_factory=list)
 
 
 # Voice mapping for different styles
@@ -35,6 +36,13 @@ VOICE_STYLES = {
     "calm": "en-US-AriaNeural",
     "dramatic": "en-GB-ThomasNeural",
     "default": "en-US-GuyNeural",
+    
+    # Emotion mappings (from scene directions)
+    "neutral": "en-US-GuyNeural",
+    "exciting": "en-US-DavisNeural",
+    "joyful": "en-US-JennyNeural",
+    "sad": "en-US-AriaNeural",
+    "tense": "en-GB-ThomasNeural",
     
     # Female options
     "female_warm": "en-US-JennyNeural",
@@ -81,21 +89,6 @@ class EdgeTTSAdapter:
         """Get voice name for style."""
         return VOICE_STYLES.get(style.lower(), VOICE_STYLES["default"])
     
-    async def _synthesize_async(
-        self,
-        text: str,
-        voice: str,
-        output_path: str,
-        rate: str = "+0%",
-        pitch: str = "+0Hz"
-    ) -> bool:
-        """Async synthesis using edge-tts."""
-        import edge_tts
-        
-        communicate = edge_tts.Communicate(text, voice, rate=rate, pitch=pitch)
-        await communicate.save(output_path)
-        return True
-    
     def synthesize(
         self,
         text: str,
@@ -127,6 +120,9 @@ class EdgeTTSAdapter:
             )
         
         try:
+            import edge_tts
+            import asyncio
+            
             voice = self.get_voice(voice_style)
             output_path = self.output_dir / f"{output_name}.mp3"
             
@@ -134,14 +130,27 @@ class EdgeTTSAdapter:
             rate_str = f"+{int((rate - 1) * 100)}%" if rate >= 1 else f"{int((rate - 1) * 100)}%"
             pitch_str = f"+{int((pitch - 1) * 50)}Hz" if pitch >= 1 else f"{int((pitch - 1) * 50)}Hz"
             
-            # Run async synthesis
-            asyncio.run(self._synthesize_async(
-                text=text,
-                voice=voice,
-                output_path=str(output_path),
-                rate=rate_str,
-                pitch=pitch_str
-            ))
+            # Create the async function
+            async def _do_synthesis():
+                communicate = edge_tts.Communicate(text, voice, rate=rate_str, pitch=pitch_str)
+                await communicate.save(str(output_path))
+            
+            # Handle running in existing event loop (Jupyter/Colab)
+            try:
+                loop = asyncio.get_running_loop()
+                # We're in an existing loop - use nest_asyncio or run in thread
+                import nest_asyncio
+                nest_asyncio.apply()
+                asyncio.run(_do_synthesis())
+            except RuntimeError:
+                # No running loop - use asyncio.run normally
+                asyncio.run(_do_synthesis())
+            except ImportError:
+                # nest_asyncio not available - try different approach
+                import concurrent.futures
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    future = executor.submit(lambda: asyncio.run(_do_synthesis()))
+                    future.result(timeout=60)
             
             # Get duration using ffprobe
             duration_ms = self._get_audio_duration(str(output_path))
@@ -150,7 +159,8 @@ class EdgeTTSAdapter:
                 success=True,
                 audio_path=str(output_path),
                 duration_ms=duration_ms,
-                text=text
+                text=text,
+                word_timings=[]  # Edge-TTS doesn't provide word timings
             )
             
         except Exception as e:
@@ -160,7 +170,8 @@ class EdgeTTSAdapter:
                 audio_path="",
                 duration_ms=0,
                 text=text,
-                error=str(e)
+                error=str(e),
+                word_timings=[]
             )
     
     def synthesize_scenes(
@@ -232,13 +243,3 @@ def synthesize_scenes(scenes: List[Dict]) -> List[TTSResult]:
     """Synthesize all scenes."""
     adapter = EdgeTTSAdapter()
     return adapter.synthesize_scenes(scenes)
-
-
-def list_voices():
-    """List available voices (async call)."""
-    async def _list():
-        import edge_tts
-        voices = await edge_tts.list_voices()
-        return voices
-    
-    return asyncio.run(_list())
