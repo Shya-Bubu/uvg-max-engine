@@ -470,7 +470,7 @@ class UVGPipeline:
                 
                 if clip_path:
                     duration = tts_results[i].duration_ms / 1000 if tts_results[i].success else 5.0
-                    motion = scene_directions[i].motion if scene_directions else "slow-zoom-in"
+                    motion = scene_directions[i].camera_motion if scene_directions else "slow-zoom-in"
                     
                     result = preparer.prepare_clip(
                         clip_path=clip_path,
