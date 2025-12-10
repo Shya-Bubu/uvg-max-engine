@@ -451,7 +451,16 @@ class UVGPipeline:
             for i, direction in enumerate(scene_directions):
                 query = direction.search_query if hasattr(direction, 'search_query') else loaded_script.scenes[i].text[:50]
                 clips = media_search.search_and_download(query, max_candidates=5, max_downloads=1)
-                clip_paths.append(clips[0] if clips else None)
+                # Extract downloaded_path from MediaCandidate object
+                if clips and len(clips) > 0:
+                    clip = clips[0]
+                    # Handle both MediaCandidate objects and string paths
+                    if hasattr(clip, 'downloaded_path'):
+                        clip_paths.append(clip.downloaded_path)
+                    else:
+                        clip_paths.append(str(clip))
+                else:
+                    clip_paths.append(None)
             
             timing["media_search"] = time.time() - step_start
             
